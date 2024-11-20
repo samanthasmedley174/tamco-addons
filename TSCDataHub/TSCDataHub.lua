@@ -22,35 +22,23 @@ local PROD_URL = "https://qz1mkettpa.execute-api.us-east-2.amazonaws.com/prod/da
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
 -- Default values for flags optimization
-local DEFAULT_QUALITY = 1  -- Normal quality (most common)
+local DEFAULT_QUALITY = 1  -- Fine quality (most common)
 local DEFAULT_PERSONAL = 0  -- Not currently used, kept for future personal sales tracking
 local DEFAULT_QUANTITY = 1  -- Single item (most common)
-
--- Whitelist: Only approved accounts can use the addon to submit data
--- The whitelist limits data submission from the entire player base to a select few
--- approved contributors who represent large trading guilds. This helps control data volume
--- and ensures submissions come from trusted sources with significant trading activity.
--- Accounts are normalized (lowercase, no @, no spaces) for matching.
--- Please contact SavageTSC in the Tamriel Savings Co public Discord server with any
--- questions or to become a contributor - https://discord.gg/7DzUVCQ
-local WHITELIST = {
-    ["savagetsc"] = true,
-    ["besidemyself"] = true,
-}
 
 -- Flag Encoding Rules (for backend parsing):
 -- Flags are variable-length for compression optimization
 -- Format: quality (1 digit) + optional quantity (3 digits, padded)
 -- 
 -- Possible flag lengths and meanings:
---   0 chars: quality=1 (Normal), quantity=1 (defaults - no flags needed)
---   1 char:  quality=2,3,4,5 with quantity=1
---            Examples: "2"=Fine, "3"=Superior, "4"=Epic, "5"=Legendary
---   4 chars: any quality (1-5) with quantity != 1
+--   0 chars: quality=1 (Fine), quantity=1 (defaults - no flags needed)
+--   1 char:  quality=0,2,3,4 with quantity=1
+--            Examples: "0"=Normal, "2"=Superior, "3"=Epic, "4"=Legendary
+--   4 chars: any quality (0-4) with quantity != 1
 --            Format: quality (1 digit) + quantity (3 digits, zero-padded)
---            Examples: "1015"=Normal qty15, "2015"=Fine qty15, "3015"=Superior qty15
+--            Examples: "0015"=Normal qty15, "1015"=Fine qty15, "2015"=Superior qty15
 --
--- Quality values: 1=Normal, 2=Fine, 3=Superior, 4=Epic, 5=Legendary
+-- Quality values: 0=Normal, 1=Fine, 2=Superior, 3=Epic, 4=Legendary
 -- Quantity: 1-999 (1 is default, omitted when quality is also default)
 --
 -- Backend parsing logic:
@@ -601,8 +589,8 @@ local function encodeFlags(quality, quantity)
         return nil -- No flags needed (both defaults)
     end
 
-    -- Build base flags: quality (1 digit, 1-5)
-    -- Quality values: 1=Normal, 2=Fine, 3=Superior, 4=Epic, 5=Legendary
+    -- Build base flags: quality (1 digit, 0-4)
+    -- Quality 0 (Normal) is valid and must be preserved
     local flags = string.format("%d", quality)
 
     -- Add quantity if it's not the default (3 digits, zero-padded)
@@ -977,7 +965,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v119: Testing Release]],
+        tooltip = [[v118: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1290,16 +1278,10 @@ local function initialize()
         return
     end
 
-    -- Check whitelist FIRST - if not whitelisted, addon does nothing
-    local accountName = normalizePlayerName(GetDisplayName())
-    if not WHITELIST[accountName] then
-        return -- Silent exit, no UI, no commands, no processing
-    end
-
     -- Initialize server platform once
     setServerPlatform()
     setupSettingsMenu()
-    PLAYER_ACCOUNT_NAME = accountName
+    PLAYER_ACCOUNT_NAME = normalizePlayerName(GetDisplayName())
 
     -- SLASH_COMMANDS["/tscdhg1"] = function()
     --     CheckGuildAndCollect(1)
