@@ -1,7 +1,7 @@
 -- TSCPriceFetcher.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcher",
-    version = 122
+    version = 121
 }
 
 -- Local references for performance
@@ -93,8 +93,8 @@ end
 -- ============================================================================
 
 local function getAvgPrice(itemLink)
-    -- Since TSCPriceDataAPI is a library dependency, it will always be available
-    return TSCPriceDataAPI:GetPrice(itemLink) -- Returns nil if no data found
+    -- Since TSCPriceDataLite is a library dependency, it will always be available
+    return TSCPriceDataLite:GetPrice(itemLink) -- Returns nil if no data found
 end
 
 local function getFormattedAvgPrice(itemLink)
@@ -110,7 +110,7 @@ end
 
 local function getFormattedPriceRange(itemLink)
     -- Use the new GetItemData function
-    local itemData = TSCPriceDataAPI:GetItemData(itemLink)
+    local itemData = TSCPriceDataLite:GetItemData(itemLink)
     if not itemData or not itemData.commonMin or not itemData.commonMax then
         return nil
     end
@@ -133,7 +133,7 @@ local function tooltipHasPriceInfo(tooltip)
             local child = content:GetChild(i)
             if child and child.GetText then
                 local text = child:GetText()
-                if text and (text:find("TSC") or text:find("Average Price:") or text:find("No Price Data Available") or text:find("Bound Item")) then
+                if text and (text:find("Tamriel Savings Co") or text:find("Average Price:") or text:find("No Price Data Available") or text:find("Bound Item")) then
                     return true
                 end
             end
@@ -147,7 +147,7 @@ local function tooltipHasPriceInfo(tooltip)
             local child = tooltip:GetChild(i)
             if child and child.GetText then
                 local text = child:GetText()
-                if text and (text:find("TSC") or text:find("Average Price:") or text:find("No Price Data Available") or text:find("Bound Item")) then
+                if text and (text:find("Tamriel Savings Co") or text:find("Average Price:") or text:find("No Price Data Available") or text:find("Bound Item")) then
                     return true
                 end
             end
@@ -412,7 +412,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v122: Minor feature release with code changes to support internal Data API
+        tooltip = [[v121: Minor feature release with code changes to support new data structure
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
@@ -436,7 +436,7 @@ Scan the QR code to view full update details]],
     local discordButton = {
         type = LHAS.ST_BUTTON,
         label = "Join TSC on Discord",
-        tooltip = "Generate a QR code that will link to the TSC Discord server",
+        tooltip = "Generate a QR code that will link to the Tamriel Savings Co Discord server",
         buttonText = "Open QR Code",
         clickHandler = function(control, button)
             showQRCode("https://discord.gg/7DzUVCQ", "Join TSC on Discord")
@@ -737,7 +737,12 @@ local function setupCreateListingHooks()
     end
 end
 
+-- ============================================================================
+-- INITIALIZATION FUNCTIONS
+-- ============================================================================
 
+-- Flag to track if the addon is initialized
+local isInitialized = false
 
 -- ============================================================================
 -- KEYBIND MANAGEMENT
@@ -765,13 +770,6 @@ local function setupTradingHouseKeybinds()
         end
     end)
 end
-
--- ============================================================================
--- INITIALIZATION FUNCTIONS
--- ============================================================================
-
--- Flag to track if the addon is initialized
-local isInitialized = false
 
 local function initialize()
     if isInitialized then

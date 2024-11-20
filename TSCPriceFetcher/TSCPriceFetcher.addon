@@ -1,10 +1,10 @@
 ## Title: TSCPriceFetcher
 ## Author: BesideMyself, SavageTSC
-## Description: A price lookup tool for fetching item prices
+## Description: A price lookup tool for fetching item prices (Must also install TSCPriceDataLite)
 ## APIVersion: 101045 101046 101047 101048
-## AddOnVersion: 122
+## AddOnVersion: 121
 ## SavedVariables: TSCPriceFetcherData
-## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000
+## DependsOn: TSCPriceDataLite>=20250611 LibQRCode>=046 LibHarvensAddonSettings>=20000
 ##
 ## This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
 ## The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
@@ -16,10 +16,6 @@
 
 # load xml file
 TSCAnnouncementPanel.xml
-
-# load Data then API
-TSCPriceDataXBNA.min.lua
-API.lua
 
 # Load the main addon last
 TSCPriceFetcher.lua
