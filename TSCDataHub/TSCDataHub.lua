@@ -36,14 +36,6 @@ local DEFAULT_QUANTITY = 1  -- Single item (most common)
 local WHITELIST = {
     ["savagetsc"] = true,
     ["besidemyself"] = true,
-    ["tsc staff 1"] = true,
-    ["tsc staff 2"] = true,
-    ["tsc staff 3"] = true,
-    ["tsc staff 4"] = true,
-    ["tsc staff 5"] = true,
-    ["tsc staff 6"] = true,
-    ["tsc staff 7"] = true,
-    ["tsc vault"] = true,
 }
 
 -- Flag Encoding Rules (for backend parsing):
@@ -985,7 +977,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v120: Testing Release]],
+        tooltip = [[v119: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
