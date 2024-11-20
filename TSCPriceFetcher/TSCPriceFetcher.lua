@@ -13,7 +13,6 @@ _G.TSCPriceFetcher = TSCPriceFetcher
 
 TSCPriceFetcher.modules.debug = TSC_DebugModule
 TSCPriceFetcher.modules.tooltips = TSC_TooltipsModule
-TSCPriceFetcher.modules.createListingHooks = TSC_CreateListingHooksModule
 TSCPriceFetcher.modules.init = TSC_InitModule
 TSCPriceFetcher.modules.events = TSC_EventsModule
 TSCPriceFetcher.modules.lookup = TSC_LookupModule
@@ -21,6 +20,11 @@ TSCPriceFetcher.modules.dataAdapter = TSC_DataAdapterModule
 
 -- Data source detection and initialization
 local function detectDataSources()
+    d("[TSC] Starting data source detection...")
+    d("[TSC] TSCPriceData: " .. tostring(_G.TSCPriceData))
+    d("[TSC] TSCPriceDataLite: " .. tostring(_G.TSCPriceDataLite))
+    d("[TSC] TSCPriceFetcher: " .. tostring(_G.TSCPriceFetcher))
+
     local hasFullData = _G.TSCPriceData ~= nil
     local hasAverageData = _G.TSCPriceDataLite ~= nil
 

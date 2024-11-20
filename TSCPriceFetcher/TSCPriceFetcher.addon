@@ -1,9 +1,9 @@
 ## Title: TSCPriceFetcher
-## Author: BesideMyself, SavageTSC
+## Author: @besidemyself
 ## Description: A price lookup tool for fetching item prices
 ## APIVersion: 101045 101046 101047
-## Version: 1.0.2
-## AddOnVersion: 1.0.2
+## Version: 0.0.2
+## AddOnVersion: 0.0.2
 ## SavedVariables: TSCPriceFetcherData
 ## OptionalDependsOn: TSCPriceData TSCPriceDataLite
 ##
@@ -16,7 +16,6 @@
 # Load the module files
 modules/core/debug.lua
 modules/ui/tooltips.lua
-modules/ui/create_listings_hooks.lua
 modules/utils/lookup.lua
 modules/utils/format.lua
 modules/utils/data_adapter.lua
