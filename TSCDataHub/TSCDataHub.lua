@@ -13,7 +13,14 @@ local GetItemLinkFunctionalQuality = GetItemLinkFunctionalQuality
 local isInitialized = false
 local SAVED_VARS_VERSION = 1
 local ONE_DAY_SECONDS = 24 * 60 * 60
-local MAX_ALLOWED_CHARS = 7800 -- 8000 max from aws policy, subtracted 200 for safety
+local GUILD_OBFUSCATION_CONSTANT = 12345 + 67890
+
+local MAX_URL_CHARS_PC = 14900 -- Chrome
+-- local MAX_URL_CHARS_PC = 1000 -- Chrome (for testing)
+-- local MAX_URL_CHARS_PC = 2000 -- Firefox
+-- local MAX_URL_CHARS_PC = 2000 -- Edge
+local MAX_URL_CHARS_XBOX = 8000
+local MAX_URL_CHARS_PS = 8000
 
 -- QR_BATCH_SIZE removed - now using character-aware batching with URL character limits
 -- local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
@@ -30,17 +37,9 @@ local DEFAULT_QUANTITY = 1
 local savedVars           -- Will be set after initialization
 local SERVER_PLATFORM     -- Will be set at initialization
 local PLAYER_ACCOUNT_NAME -- Will be set at initialization
+local CURRENT_MAX_CHARS   -- Will be set based on platform and user preference
 
-local function urlEncode(str)
-    if not str or str == "" then
-        return ""
-    end
-    -- Encode any character that's not unreserved (A-Za-z0-9-_.~)
-    -- Use explicit pattern matching to avoid nested character class issues
-    return string.gsub(str, "[^A-Za-z0-9%-_%.~]", function(char)
-        return string.format("%%%02X", string.byte(char))
-    end)
-end
+-- Capture settings (removed selectedGuildSlot - now using individual buttons)
 
 -- URL submission state
 local urlTable = nil
@@ -54,75 +53,17 @@ TSCDataHub.isProcessing = false
 TSCDataHub.processingGuildSlot = nil      -- Track which guild is being processed
 TSCDataHub.capturedGuildsThisSession = {} -- Track guilds captured in this session
 
+local OVERRIDE_AND_USE_CONSOLE_LIMITS = false
+
 -- Default settings structure
 TSCDataHub.default = {
     trackPersonalSales = false,
     guildSubmissionTracking = {}, -- Track last submission timestamp per guild
 }
 
--- =========================================================================
+-- ============================================================================
 -- QR CODE FUNCTIONS
--- =========================================================================
-
-local qrUi = {
-    window = nil,
-    texture = nil,
-    title = nil,
-    autoHideId = nil,
-}
-
-local function EnsureQrWindow()
-    if qrUi.window then
-        return qrUi.window
-    end
-
-    local frameWidth = 240
-    local frameHeight = 260
-    local qrPadding = 16
-
-    local window = WINDOW_MANAGER:CreateTopLevelWindow("TSCDataHubSettingsQR")
-    window:SetDimensions(frameWidth, frameHeight)
-    window:SetAnchor(CENTER, GUI_ROOT, CENTER, 420, 0)
-    window:SetMovable(true)
-    window:SetMouseEnabled(true)
-    window:SetClampedToScreen(true)
-    window:SetDrawTier(DT_HIGH)
-
-    local backdrop = WINDOW_MANAGER:CreateControl(nil, window, CT_BACKDROP)
-    backdrop:SetAnchorFill()
-    backdrop:SetCenterColor(0.05, 0.05, 0.05, 0.95)
-    backdrop:SetEdgeTexture("EsoUI/Art/ChatWindow/chat_BGedge.dds", 256, 128, 16)
-    backdrop:SetEdgeColor(0.35, 0.6, 1, 0.8)
-
-    local title = WINDOW_MANAGER:CreateControl(nil, window, CT_LABEL)
-    title:SetFont("ZoFontHeader3")
-    title:SetColor(0.82, 0.92, 1, 1)
-    title:SetAnchor(TOPLEFT, window, TOPLEFT, qrPadding, qrPadding)
-    title:SetAnchor(TOPRIGHT, window, TOPRIGHT, -qrPadding, qrPadding)
-    title:SetHorizontalAlignment(TEXT_ALIGN_CENTER)
-    title:SetText("QR Code")
-
-    local closeButton = WINDOW_MANAGER:CreateControl(nil, window, CT_BUTTON)
-    closeButton:SetDimensions(24, 24)
-    closeButton:SetAnchor(TOPRIGHT, window, TOPRIGHT, -8, 8)
-    closeButton:SetNormalTexture("EsoUI/Art/Buttons/closebutton_up.dds")
-    closeButton:SetPressedTexture("EsoUI/Art/Buttons/closebutton_down.dds")
-    closeButton:SetMouseOverTexture("EsoUI/Art/Buttons/closebutton_mouseover.dds")
-    closeButton:SetHandler("OnClicked", function()
-        window:SetHidden(true)
-    end)
-
-    local qrControl = LibQRCode.CreateQRControl(frameWidth - (qrPadding * 2), "")
-    qrControl:SetParent(window)
-    qrControl:SetAnchor(TOPLEFT, title, BOTTOMLEFT, 0, qrPadding)
-    qrControl:SetAnchor(BOTTOMRIGHT, window, BOTTOMRIGHT, -qrPadding, -qrPadding)
-
-    qrUi.window = window
-    qrUi.texture = qrControl
-    qrUi.title = title
-
-    return window
-end
+-- ============================================================================
 
 function TSCDataHub.showSettingsQRCode(url, title)
     if not LibQRCode then
@@ -131,27 +72,83 @@ function TSCDataHub.showSettingsQRCode(url, title)
         return
     end
 
-    local qrWindow = EnsureQrWindow()
+    -- Create our own QR code window (copied from LibQRCode but with custom positioning)
+    local defaultTextureSize = 200
+    local defaultHeaderHeight = 30
+    local defaultXInset = 5
+    local defaultYInset = 5
 
-    if qrUi.title then
-        qrUi.title:SetText(title or "QR Code")
+    -- Get or create the settings window
+    local qrWindow = WINDOW_MANAGER:GetControlByName("TSCDataHubSettingsQRWindow")
+    if qrWindow == nil then
+        -- Create the main window (only once)
+        qrWindow = WINDOW_MANAGER:CreateTopLevelWindow("TSCDataHubSettingsQRWindow")
+        local windowWidth = defaultTextureSize + 2 * defaultXInset
+        local windowHeight = defaultTextureSize + defaultHeaderHeight + 3 * defaultYInset
+        qrWindow:SetDimensions(windowWidth, windowHeight)
+
+        -- Position at center + 500px offset
+        qrWindow:SetAnchor(CENTER, GUI_ROOT, CENTER, 500, 0)
+        qrWindow:SetMovable(true)
+        qrWindow:SetMouseEnabled(true)
+        qrWindow:SetClampedToScreen(true)
+
+        -- Create title header
+        local header = WINDOW_MANAGER:CreateControl("TSCDataHubSettingsQRTitle", qrWindow, CT_LABEL)
+        header:SetHorizontalAlignment(TEXT_ALIGN_CENTER)
+        header:SetDimensions(defaultTextureSize, defaultHeaderHeight)
+        header:SetColor(0.5, 0.5, 1, 1) -- Blue color like original
+        header:SetAnchor(TOP, qrWindow, TOP, 0, defaultYInset)
+        header:SetFont("ZoFontAnnounceMedium")
+
+        -- Add backdrop
+        local backdrop = WINDOW_MANAGER:CreateControlFromVirtual("TSCDataHubSettingsQRBackdrop", qrWindow,
+            "ZO_DefaultBackdrop")
+        backdrop:SetAnchorFill()
+        backdrop:SetDrawTier(DT_LOW)
+
+        -- Add close button
+        local closeButton = WINDOW_MANAGER:CreateControl("TSCDataHubSettingsQRCloseButton", qrWindow, CT_BUTTON)
+        closeButton:SetDimensions(defaultHeaderHeight, defaultHeaderHeight)
+        closeButton:SetAnchor(TOPRIGHT, qrWindow, TOPRIGHT, defaultXInset, defaultYInset)
+        closeButton:SetHandler("OnClicked", function()
+            SCENE_MANAGER:ToggleTopLevel(qrWindow)
+            qrWindow:SetHidden(true)
+        end)
+        closeButton:SetEnabled(true)
+        closeButton:SetNormalTexture("EsoUI/Art/Buttons/closebutton_up.dds")
+        closeButton:SetPressedTexture("EsoUI/Art/Buttons/closebutton_down.dds")
+        closeButton:SetMouseOverTexture("EsoUI/Art/Buttons/closebutton_mouseover.dds")
+        closeButton:EnableMouseButton(MOUSE_BUTTON_INDEX_LEFT, true)
+    else
+        -- Window already exists, just show it
+        SCENE_MANAGER:ToggleTopLevel(qrWindow)
+        qrWindow:SetHidden(false)
     end
 
-    if qrUi.texture then
-        LibQRCode.DrawQRCode(qrUi.texture, url)
+    -- Update the title
+    local header = WINDOW_MANAGER:GetControlByName("TSCDataHubSettingsQRTitle")
+    if header then
+        header:SetText(title or "QR Code")
     end
 
-    if qrUi.autoHideId then
-        zo_removeCallLater(qrUi.autoHideId)
-        qrUi.autoHideId = nil
+    -- Create or update QR code
+    local qrContainer = WINDOW_MANAGER:GetControlByName("TSCDataHubSettingsQRContainer")
+    if qrContainer == nil then
+        qrContainer = LibQRCode.CreateQRControl(defaultTextureSize, url)
+    else
+        LibQRCode.DrawQRCode(qrContainer, url)
     end
 
-    qrWindow:SetHidden(false)
-    qrUi.autoHideId = zo_callLater(function()
-        if qrUi.window and not qrUi.window:IsHidden() then
-            qrUi.window:SetHidden(true)
+    qrContainer:SetParent(qrWindow)
+    qrContainer:SetAnchor(TOPLEFT, qrWindow, TOPLEFT, defaultXInset, defaultHeaderHeight + 2 * defaultYInset)
+    qrContainer:SetAnchor(BOTTOMRIGHT, qrWindow, BOTTOMRIGHT, -defaultXInset, -defaultYInset)
+
+    -- Auto-hide after 10 seconds
+    zo_callLater(function()
+        if not qrWindow:IsHidden() then
+            qrWindow:SetHidden(true)
         end
-        qrUi.autoHideId = nil
     end, 10000)
 end
 
@@ -281,6 +278,30 @@ end
 -- ============================================================================
 -- UTILITY FUNCTIONS
 -- ============================================================================
+
+local function setMaxCharactersForCurrentSetup()
+    if OVERRIDE_AND_USE_CONSOLE_LIMITS then
+        -- Override for testing using console limits while on PC
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_XBOX
+    elseif SERVER_PLATFORM == 2 or SERVER_PLATFORM == 5 or SERVER_PLATFORM == 6 then
+        -- PC platforms (NA PC, EU PC, PTS PC)
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_PC
+    elseif SERVER_PLATFORM == 0 or SERVER_PLATFORM == 3 then
+        -- Xbox platforms (NA Xbox, EU Xbox)
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_XBOX
+    elseif SERVER_PLATFORM == 1 or SERVER_PLATFORM == 4 then
+        -- PlayStation platforms (NA PS, EU PS)
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_PS
+    else
+        -- Unknown platform, use Xbox limit, as console limits are more restrictive
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_XBOX
+    end
+end
+
+local function obfuscateGuildId(guildId)
+    -- Mathematical transformation to create 6-digit obfuscated ID
+    return (guildId * GUILD_OBFUSCATION_CONSTANT) % 1000000
+end
 
 local function isGuildHistoryReady(guildId, category)
     local numEvents = GetNumGuildHistoryEvents(guildId, category)
@@ -598,29 +619,20 @@ local function encodeTransaction(transaction, minTimestamp)
     return encodedTransaction
 end
 
-local function computeBatchBudget(guildId, guildName, referenceTimestamp)
-    local playerName = savedVars.trackPersonalSales and PLAYER_ACCOUNT_NAME or "0"
-    local encodedPlayerName = urlEncode(playerName)
-    local encodedGuildName = urlEncode(guildName)
-
-    local fixedPrefix = string.format("%s?sp=%d&g=%d&gn=%s&t=%d&p=%s&d=",
-        PROD_URL, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
-
-    local budget = MAX_ALLOWED_CHARS - #fixedPrefix
-    if budget < 0 then
-        budget = 0
-    end
-
-    return budget, encodedPlayerName, encodedGuildName
-end
-
-local function createURLFromEncodedBatch(encodedBatch, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
+local function createURLFromEncodedBatch(encodedBatch, guildId, referenceTimestamp)
     local dataString = table.concat(encodedBatch.encodedTransactions, TRANSACTION_SEPARATOR)
 
-    local url = string.format("%s?sp=%d&g=%d&gn=%s&t=%d&p=%s&d=%s",
-        PROD_URL, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName, dataString)
+    -- Add player parameter - use "0" as default, or URL-encoded player name if personal tracking enabled
+    local playerName = savedVars.trackPersonalSales and PLAYER_ACCOUNT_NAME or "0"
+    local encodedPlayerName = zo_urlEncode(playerName)
+    
+    local url = string.format("%s?sp=%d&g=%d&t=%d&p=%s&d=%s", 
+        PROD_URL, SERVER_PLATFORM, guildId, referenceTimestamp, encodedPlayerName, dataString)
 
-    return url, #url
+    -- LOCAL_TESTING_URL
+    --  local url = string.format("%s?sp=%d&g=%d&t=%d&d=%s", LOCAL_TESTING_URL, SERVER_PLATFORM, guildId, referenceTimestamp,
+    -- dataString)
+    return url
 end
 
 local function createEncodedBatches(encodedTransactions, maxTransactionChars)
@@ -751,7 +763,7 @@ end
 
 local function getGuildData(guildSlot)
     local guildId = GetGuildId(guildSlot)
-    local guildName = GetGuildName(guildId) or "gn-1"
+    local obfuscatedId = obfuscateGuildId(guildId)
     local currentTime = GetTimeStamp()
     local sevenDaysAgo = currentTime - (7 * 24 * 60 * 60)
 
@@ -782,7 +794,7 @@ local function getGuildData(guildSlot)
 
     return {
         guildId = guildId,
-        guildName = guildName,
+        obfuscatedId = obfuscatedId,
         startTime = startTime,
         currentTime = currentTime
     }
@@ -812,7 +824,7 @@ local function CheckGuildAndCollect(guildSlot)
     -- Step 2: Get guild data with automatic windowing
     local guildData = getGuildData(guildSlot)
 
-    -- CHAT_ROUTER:AddSystemMessage("Starting data collection for guild " .. guildData.guildId)
+    -- CHAT_ROUTER:AddSystemMessage("Starting data collection for guild " .. guildData.obfuscatedId)
 
     -- Step 3: Start async data collection for the entire time range
     -- Initialize urlTable if it doesn't exist, but don't clear existing URLs
@@ -832,17 +844,15 @@ local function CheckGuildAndCollect(guildSlot)
                 encodeAllTransactionsAsync(salesEvents, referenceTimestamp, function(encodedTransactions)
                     if #encodedTransactions > 0 then
                         -- Step 2: Create character-aware batches using platform and method specific limits
-                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Creating batches from " .. #encodedTransactions .. " transactions with " .. MAX_ALLOWED_CHARS .. " char limit")
-                        local batchBudget, encodedPlayerName, encodedGuildName = computeBatchBudget(guildData.guildId, guildData.guildName, referenceTimestamp)
-                        local batches = createEncodedBatches(encodedTransactions, batchBudget)
+                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Creating batches from " .. #encodedTransactions .. " transactions with " .. CURRENT_MAX_CHARS .. " char limit")
+                        local batches = createEncodedBatches(encodedTransactions, CURRENT_MAX_CHARS)
+                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Created " .. #batches .. " URL batches")
 
+                        -- Step 3: Create URLs from encoded batches with reference timestamp
                         for i, batch in ipairs(batches) do
-                            local url, length = createURLFromEncodedBatch(batch, guildData.guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
-                            if length > MAX_ALLOWED_CHARS then
-                                CHAT_ROUTER:AddSystemMessage(string.format("[TSC] Warning: URL %d length (%d) exceeded limit, skipping", i, length))
-                            else
-                                table.insert(urlTable, url)
-                            end
+                            local url = createURLFromEncodedBatch(batch, guildData.obfuscatedId, referenceTimestamp)
+                            -- CHAT_ROUTER:AddSystemMessage("[TSC] URL " .. i .. " length: " .. string.len(url) .. " chars")
+                            table.insert(urlTable, url)
                         end
 
                         -- Update URL indices (don't reset if there are existing URLs)
@@ -1270,6 +1280,8 @@ local function initialize()
 
     -- Initialize server platform once
     setServerPlatform()
+    -- Set initial character limits based on platform and user preference
+    setMaxCharactersForCurrentSetup()
     setupSettingsMenu()
     PLAYER_ACCOUNT_NAME = string.gsub(GetDisplayName(), "^@", " ")
 
