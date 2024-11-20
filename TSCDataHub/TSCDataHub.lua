@@ -44,7 +44,7 @@ local urlTable = nil
 local currentUrlIndex = nil
 local totalUrls = nil
 
-local OVERRIDE_AND_USE_CONSOLE_LIMITS = false
+local OVERRIDE_AND_USE_CONSOLE_LIMITS = true
 
 -- Default settings structure
 TSCDataHub.default = {
@@ -188,8 +188,8 @@ local function setMaxCharactersForCurrentSetup()
         -- PlayStation platforms (NA PS, EU PS)
         CURRENT_MAX_CHARS = MAX_URL_CHARS_PS
     else
-        -- Unknown platform, use Xbox limit, as console limits are more restrictive
-        CURRENT_MAX_CHARS = MAX_URL_CHARS_XBOX
+        -- Unknown platform, use conservative limit
+        CURRENT_MAX_CHARS = MAX_URL_CHARS_PC
     end
 end
 
@@ -848,17 +848,17 @@ local function setServerPlatform()
     local platform = GetUIPlatform()
 
     if string.find(worldName, "NA") then
-        if platform == UI_PLATFORM_XBOX then
+        if platform == "XBOXONE" or platform == "XBOXSERIESX" then
             SERVER_PLATFORM = 0 -- NA Xbox
-        elseif platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+        elseif platform == "PS4" or platform == "PS5" then
             SERVER_PLATFORM = 1 -- NA PlayStation
         else
             SERVER_PLATFORM = 2 -- NA PC
         end
     elseif string.find(worldName, "EU") then
-        if platform == UI_PLATFORM_XBOX then
+        if platform == "XBOXONE" or platform == "XBOXSERIESX" then
             SERVER_PLATFORM = 3 -- EU Xbox
-        elseif platform == UI_PLATFORM_PS5 then
+        elseif platform == "PS4" or platform == "PS5" then
             SERVER_PLATFORM = 4 -- EU PlayStation
         else
             SERVER_PLATFORM = 5 -- EU PC
@@ -868,23 +868,6 @@ local function setServerPlatform()
     else
         SERVER_PLATFORM = 9 -- Unknown
     end
-end
-
-local function getServerPlatform()
-    local platformNames = {
-        [0] = "Xbox NA",
-        [1] = "PlayStation NA", 
-        [2] = "PC NA",
-        [3] = "Xbox EU",
-        [4] = "PlayStation EU",
-        [5] = "PC EU",
-        [6] = "PTS PC",
-        [9] = "Unknown"
-    }
-    
-    local platformName = platformNames[SERVER_PLATFORM] or "Unknown"
-    CHAT_ROUTER:AddSystemMessage("You are playing on: " .. platformName)
-    return platformName
 end
 
 local function initialize()
@@ -897,7 +880,7 @@ local function initialize()
     -- Set initial character limits based on platform and user preference
     setMaxCharactersForCurrentSetup()
     setupSettingsMenu()
-    PLAYER_ACCOUNT_NAME = string.gsub(GetDisplayName(), "^@", " ")
+    PLAYER_ACCOUNT_NAME = string.gsub(GetDisplayName(), "^@", "")
 
     SLASH_COMMANDS["/tscdhg1"] = function()
         CheckGuildAndCollect(1, 2)
@@ -920,16 +903,25 @@ local function initialize()
     end
 
     -- SLASH_COMMANDS["/tester"] = function()
+    --     local numGuilds = GetNumGuilds()
+    --     CHAT_ROUTER:AddSystemMessage("Number of guilds: " .. numGuilds)
+    --     for i = 1, numGuilds do
+    --         local guildId = GetGuildId(i)
+    --         local guildName = GetGuildName(guildId)
+    --         CHAT_ROUTER:AddSystemMessage("--------------------------------")
+    --         CHAT_ROUTER:AddSystemMessage("Guild " .. i .. ": " .. tostring(guildName))
+    --         CHAT_ROUTER:AddSystemMessage("Guild " .. i .. ": " .. tostring(guildId))
+    --         CHAT_ROUTER:AddSystemMessage("--------------------------------")
+    --     end
     -- end
+
+
 
     isInitialized = true
 
 
     zo_callLater(function()
-        CHAT_ROUTER:AddSystemMessage("Hello" .. tostring(PLAYER_ACCOUNT_NAME) .. "!")
-        CHAT_ROUTER:AddSystemMessage("Thanks for helping out with testing!")
-        getServerPlatform()
-        CHAT_ROUTER:AddSystemMessage("Please let us know if the server and platform message above is accurate!")
+        CHAT_ROUTER:AddSystemMessage("TSCDataHub is ready!" .. tostring(PLAYER_ACCOUNT_NAME))
     end, 5000)
 end
 
