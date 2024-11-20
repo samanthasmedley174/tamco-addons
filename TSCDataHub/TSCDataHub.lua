@@ -209,20 +209,10 @@ local function setSubmissionTracking(guildId, timestamp, eventId)
 end
 
 local function clearAllSubmissionTracking()
-    -- Clear submission tracking for all guilds
     if savedVars.guildSubmissionTracking then
         savedVars.guildSubmissionTracking = {}
+        CHAT_ROUTER:AddSystemMessage("[TSC] Cleared submission tracking for all guilds")
     end
-    
-    -- Clear the URL table to remove any pending submissions
-    urlTable = nil
-    currentUrlIndex = 1
-    totalUrls = 0
-    
-    -- Reset session captures so all guilds can be captured again
-    TSCDataHub.capturedGuildsThisSession = {}
-    
-    CHAT_ROUTER:AddSystemMessage("[TSC] Fresh start: Cleared all tracking, URLs, and session data")
 end
 
 local function findNewestEventInBatch(salesEvents)
@@ -987,10 +977,7 @@ local function setupSettingsMenu()
     local howToButton = {
         type = LHAS.ST_BUTTON,
         label = "How To",
-        tooltip = "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
-            "Do this for each guild you want to capture data for.\n\n" ..
-            "To submit the data, click the 'Submit URL ...' button below.\n\n" ..
-            "Repeat 'Submit URL' until all URLs are submitted.",
+        tooltip = "placeholder",
         buttonText = "How To",
         clickHandler = function(control, button)
         end,
@@ -1141,10 +1128,6 @@ local function setupSettingsMenu()
         tooltip = "Submit the next URL in the queue",
         buttonText = "Submit",
         disable = function()
-            -- Disable during processing
-            if TSCDataHub.isProcessing then
-                return true
-            end
             if not urlTable or not currentUrlIndex or not totalUrls then
                 return true
             end
@@ -1175,10 +1158,6 @@ local function setupSettingsMenu()
         label = "Clear Submission Tracking",
         tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to capture'",
         buttonText = "Clear Tracking",
-        disable = function()
-            -- Disable during processing
-            return TSCDataHub.isProcessing
-        end,
         clickHandler = function()
             clearAllSubmissionTracking()
             -- Refresh the status display after clearing
