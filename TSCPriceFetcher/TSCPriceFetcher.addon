@@ -1,10 +1,10 @@
 ## Title: TSCPriceFetcher
 ## Author: BesideMyself, SavageTSC
 ## Description: A price lookup tool for fetching item prices (Must also install TSCPriceDataLite)
-## APIVersion: 101045 101046 101047 101048
-## AddOnVersion: 120
+## APIVersion: 101045 101046 101047
+## AddOnVersion: 110
 ## SavedVariables: TSCPriceFetcherData
-## DependsOn: TSCPriceDataLite>=20250611 LibQRCode>=046 LibHarvensAddonSettings>=20000
+## DependsOn TSCPriceDataLite>=20250611
 ##
 ## This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
 ## The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
@@ -12,10 +12,16 @@
 ##
 ## You can read the full terms at https://account.elderscrollsonline.com/add-on-terms
 
-## Bindings: TSCPriceFetcherBindings.xml
-
-# load xml file
-TSCAnnouncementPanel.xml
+# Load the module files
+modules/core/debug.lua
+modules/utils/format.lua
+modules/utils/data_adapter.lua
+modules/utils/utils.lua
+modules/ui/tooltips.lua
+modules/ui/create_listings_hooks.lua
+modules/utils/lookup.lua
+modules/core/init.lua
+modules/core/events.lua
 
 # Load the main addon last
 TSCPriceFetcher.lua
