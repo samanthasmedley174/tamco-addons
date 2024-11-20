@@ -3,7 +3,7 @@ if LibHarvensAddonSettings then
 end
 
 LibHarvensAddonSettings = {}
-LibHarvensAddonSettings.version = 20001
+LibHarvensAddonSettings.version = 20002
 local LibHarvensAddonSettings = LibHarvensAddonSettings
 
 -----
@@ -17,6 +17,7 @@ LibHarvensAddonSettings.ST_COLOR = 5
 LibHarvensAddonSettings.ST_BUTTON = 6
 LibHarvensAddonSettings.ST_LABEL = 7
 LibHarvensAddonSettings.ST_SECTION = 8
+LibHarvensAddonSettings.ST_ICONPICKER = 9
 -----
 
 LibHarvensAddonSettings.addons = {}
@@ -84,11 +85,11 @@ function AddonSettingsControl:ValueChanged(...)
 end
 
 function AddonSettingsControl:GetValueOrCallback(arg)
-	if type(arg) == "function" then
-		return arg(self)
-	else
-		return arg
-	end
+	return type(arg) == "function" and arg(self) or arg
+end
+
+function AddonSettingsControl:GetString(strOrId)
+	return type(strOrId) == "number" and GetString(strOrId) or strOrId
 end
 
 function AddonSettingsControl:SetValue(...)
@@ -99,11 +100,13 @@ function AddonSettingsControl:SetValue(...)
 end
 
 function AddonSettingsControl:ResetToDefaults()
+	if self.ignoreDefault then return end
 	if self.type == LibHarvensAddonSettings.ST_DROPDOWN then
 		self:SetValue(self.default)
 		if self.control then
 			local itemIndex = 1
-			for i = 1, #self.items do
+			local items = self:GetValueOrCallback(self.items)
+			for i = 1, #items do
 				if self.items[i].name == self.default then
 					itemIndex = i
 					break
@@ -115,6 +118,11 @@ function AddonSettingsControl:ResetToDefaults()
 	elseif self.type == LibHarvensAddonSettings.ST_COLOR then
 		self:SetValue(unpack(self.default))
 		self.setFunction(unpack(self.default))
+	elseif self.type == LibHarvensAddonSettings.ST_ICONPICKER then
+		self:SetValue(self.default or 1)
+		local items = self:GetValueOrCallback(self.items)
+		local combobox = self.control:GetDropDown()
+		self.setFunction(combobox, self.default, self.items[self.default])
 	elseif self.setFunction then
 		self:SetValue(self.default)
 		self.setFunction(self.default)
@@ -155,19 +163,134 @@ function AddonSettings:SetAnchor(prev)
 	end
 end
 
-function AddonSettings:AddSetting(params)
+function AddonSettings:AddSetting(params, index, playAnimation)
+	--Append if invalid or empty index
+	if index == nil or index < 1 then index = #self.settings + 1 end
+
+	--Prevent an attempt at cleaning up the new control before it gets created.
+	if self.selected then
+		self:CleanUp()
+	end
+
 	local setting = AddonSettingsControl:New(self.callbackManager, params.type)
-	self.settings[#self.settings + 1] = setting
+	table.insert(self.settings, index, setting)
 	setting:SetupControl(params)
-	return setting
+
+	--Force the settings page to update immediately if currently showing.
+	--The cleanup earlier prevents duplicate controls from being created.
+	if self.selected then
+		self:CreateControls()
+	end
+
+	--Update the container height in pc mode
+	if not IsConsoleUI() and self.selected then
+		LibHarvensAddonSettings.container.endHeight = self:GetOverallHeight() + 8
+		--Conditionally show the animation. Useful for simulating submenus
+		if not playAnimation then
+			LibHarvensAddonSettings.openTimeline:PlayInstantlyToEnd()
+		else
+			LibHarvensAddonSettings.openTimeline:PlayFromStart()
+		end
+	end
+
+	return setting, index
 end
 
-function AddonSettings:AddSettings(params)
+function AddonSettings:AddSettings(params, index, playAnimation)
+	--It should be possible to set for i = (index or 1), #params + index and let the indexes be
+	--built into the returned table, but that might be less intuitive to iterate through.
 	local ret = {}
+	local indexes = {}
 	for i = 1, #params do
-		ret[i] = self:AddSetting(params[i])
+		ret[i], indexes[i] = self:AddSetting(params[i], index, playAnimation)
+		if index ~= nil and index > 0 then
+			index = index + 1
+		end --Increment the index to add them in-order, not reverse order.
 	end
-	return ret
+	return ret, indexes
+end
+
+--removes up to count settings at index.
+--always refreshes list to ensure proper cleanup.
+function AddonSettings:RemoveSettings(index, count, playAnimation)
+	--It is important to cleanup before removing from table or else we can get stuck with the controls forever.
+	if self.selected then
+		self:CleanUp()
+	end
+	local removedSettingsList = {}
+	if not count then count = 1 end
+	for i = 1, count do
+		if not self.settings[index] then break end
+		table.insert(removedSettingsList, table.remove(self.settings, index))
+	end
+	--Force immediate page update
+	if self.selected then
+		self:CreateControls()
+	end
+
+	--Update the container height in pc mode
+	if not IsConsoleUI() and self.selected then
+		LibHarvensAddonSettings.container.endHeight = self:GetOverallHeight() + 8
+		--Conditionally show the animation. Useful for simulating submenus
+		if not playAnimation then
+			LibHarvensAddonSettings.openTimeline:PlayInstantlyToEnd()
+		else
+			LibHarvensAddonSettings.openTimeline:PlayFromStart()
+		end
+	end
+
+	return removedSettingsList
+end
+
+--removes all settings
+--always refreshes list to ensure proper cleanup.
+function AddonSettings:RemoveAllSettings(playAnimation)
+	if self.selected then
+		self:CleanUp()
+	end
+
+	local oldSettingsList = {}
+	while #self.settings > 0 do
+		table.insert(oldSettingsList, table.remove(self.settings, 1))
+	end
+
+	--Update the container height in pc mode
+	if not IsConsoleUI() and self.selected then
+		LibHarvensAddonSettings.container.endHeight = self:GetOverallHeight() + 8
+		--Conditionally show the animation. Useful for simulating submenus
+		if not playAnimation then
+			LibHarvensAddonSettings.openTimeline:PlayInstantlyToEnd()
+		else
+			LibHarvensAddonSettings.openTimeline:PlayFromStart()
+		end
+	end
+
+	return oldSettingsList
+end
+
+--Find the index of the first setting made from these params.
+--This uses shallow table comparisons, which feels very unoptimal.
+--If a setting's index position is static, it would be better to use the return value of AddSetting(s)
+function AddonSettings:GetIndexOf(setting, areParams)
+	if areParams then
+		local tempSetting = AddonSettingsControl:New(self.callbackManager, setting.type)
+		tempSetting:SetupControl(setting)
+		setting = tempSetting
+	end
+
+	local isMatch = false
+	for index, existing in pairs(self.settings) do
+		isMatch = true
+		for k, v in pairs(setting) do
+			local t = type(v)
+			if t ~= "table" and t ~= "userdata" and existing[k] ~= v then
+				isMatch = false
+				break
+			end
+		end
+		if isMatch then return index end
+	end
+	return nil
 end
 
 function AddonSettings:Select()
@@ -233,6 +356,11 @@ function AddonSettings:GetOverallHeight()
 	end
 	return sum
 end
+
+function AddonSettings:Clear()
+	self.settings = {}
+	self.selected = false
+end
 -----
 
 -----
@@ -294,10 +422,10 @@ function LibHarvensAddonSettings:Initialize()
 	if self.initialized then
 		return
 	end
-	if #LibHarvensAddonSettings.addons > 0 then
-		self:CreateAddonSettingsPanel()
-		self:CreateControlPools()
-		self:CreateAddonList()
-	end
+
+	self:CreateAddonSettingsPanel()
+	self:CreateControlPools()
+	self:CreateAddonList()
+
 	self.initialized = true
 end
