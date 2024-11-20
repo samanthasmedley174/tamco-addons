@@ -1,0 +1,32 @@
+<GuiXml>
+  <Controls>
+    <TopLevelControl name="TSCAnnouncementPanel" clampedToScreen="true" mouseEnabled="true"
+      movable="false" hidden="true" layer="DL_OVERLAY">
+      <Anchor point="CENTER" relativeTo="GuiRoot" relativePoint="CENTER" offsetX="0" offsetY="0" />
+      <Dimensions x="700" y="300" />
+      <Controls>
+        <Backdrop name="$(parent)Backdrop" centerColor="222222" edgeColor="FFFFFF"
+          inherits="ZO_ThinBackdrop">
+          <AnchorFill />
+        </Backdrop>
+        <Label name="$(parent)Title" font="ZoFontGamepadBold48" color="FFD700"
+          horizontalAlignment="CENTER" text="TSC Price Fetcher Updated!">
+          <Anchor point="TOP" relativeTo="$(parent)" relativePoint="TOP" offsetY="30" />
+        </Label>
+        <Label name="$(parent)Message" font="ZoFontGamepad34" color="FFFFFF"
+          horizontalAlignment="CENTER" wrapMode="ELLIPSIS"
+          text="See 'What's New' in the settings for details.">
+          <Anchor point="TOP" relativeTo="$(parent)Title" relativePoint="BOTTOM" offsetY="20" />
+          <Dimensions x="650" />
+        </Label>
+
+        <!-- <Button name="$(parent)CloseButton" text="Close" font="ZoFontGamepadBold27"
+          clickSound="Click">
+          <Anchor point="CENTER" relativeTo="$(parent)" relativePoint="BOTTOM" offsetX="0"
+            offsetY="-50" />
+          <Dimensions x="150" y="50" />
+        </Button> -->
+      </Controls>
+    </TopLevelControl>
+  </Controls>
+</GuiXml> 
