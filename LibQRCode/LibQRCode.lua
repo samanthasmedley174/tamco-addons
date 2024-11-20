@@ -20,13 +20,7 @@ local function GetPixelSize(parentX, parentY, rowcount, colcount)
 	local pxY = parentY / (rowcount+2)
 	
 	--attempt to remove distortion by making the pixels square, simply take the smaller of the two
-	local pxSize = math.min(pxX, pxY)
-	-- round to the nearest multiple of 0.5 that's lower than the computed pixel size
-	-- this will make the pixels square-enough, while also mostly removing distortion from having pixel size values
-	-- that don't align well on pixel boundaries.  We could make this just a pure integer by doing 
-	-- math.floor(math.min(pxX, pxY))
-	-- but for QR Codes with a lot of data in them, that can cause the margins to become much larger than they need to be.
-	return math.floor(pxSize*2)/2 
+	return math.min(pxX, pxY)
 end
 
 function LibQRCode.CreateQRControl(size, data)
@@ -66,7 +60,6 @@ local function DrawQRCodeWithCompositeTexture(control, qr_table)
 	composite:SetParent(control)
 	composite:SetDrawTier(control:GetDrawTier())
 	composite:SetDrawLayer(DL_OVERLAY)
-	composite:SetPixelRoundingEnabled(false)
 	--d("Composite has " .. composite:GetNumSurfaces() .. " surfaces")
 	
 	local rowcount = #qr_table
@@ -74,13 +67,18 @@ local function DrawQRCodeWithCompositeTexture(control, qr_table)
 	local parentX, parentY = control:GetDimensions()
 	--place a white border around the QRCode for easy detection
 	local pxSize = GetPixelSize(parentX, parentY, rowcount, colcount)
-	--d("QR Pixel Size is " .. pxSize)
 	
 	local yOffset = (parentY - (pxSize * rowcount)) / 2
 	local xOffset = (parentX - (pxSize * colcount)) / 2
 	
 	composite:SetAnchor(TOPLEFT, control, TOPLEFT, xOffset, yOffset)
 	composite:SetAnchor(BOTTOMRIGHT, control, BOTTOMRIGHT, -xOffset, -yOffset)
+	
+	local l = composite:GetLeft()
+	local r = composite:GetRight()
+	local t = composite:GetTop()
+	local b = composite:GetBottom()
+	--d("Coords for CompositeControl (" .. l .. ", " .. t .. "), (" .. r .. ", " .. b .. ")")
 	
 	--set the background of the parent control to white
 	control:SetColor(1, 1, 1, 1)
@@ -151,15 +149,11 @@ function LibQRCode.DrawQRCode(control, data)
 end
 
 local function DrawQRCode_Floating(data)
-	local defaultTextureSize = 200
-	local defaultHeaderHeight = 30
-	local defaultXInset = 5
-	local defaultYInset = 5
 	if floatingWindow == nil then
 		--Create a basic window to hold the QR code
 		floatingWindow = WINDOW_MANAGER:CreateTopLevelWindow("LibQRCodeWindow")
 		--these dimensions will make the QRCode a square accounting for the headers and offsets in the window.
-		floatingWindow:SetDimensions(defaultTextureSize + 2*defaultXInset, defaultTextureSize + defaultHeaderHeight + 3 * defaultYInset)
+		floatingWindow:SetDimensions(210, 245)
 		floatingWindow:SetAnchor(CENTER)
 		floatingWindow:SetMovable(true)
 		floatingWindow:SetMouseEnabled(true)
@@ -168,9 +162,9 @@ local function DrawQRCode_Floating(data)
 		local header = WINDOW_MANAGER:CreateControl("LibQRWindowTitle", floatingWindow, CT_LABEL)
 		header:SetText("LibQRCode")
 		header:SetHorizontalAlignment(TEXT_ALIGN_CENTER)
-		header:SetDimensions(defaultTextureSize, defaultHeaderHeight)
+		header:SetDimensions(200, 30)
 		header:SetColor(0.5, 0.5, 1, 1) -- a nice blue color
-		header:SetAnchor(TOP, floatingWindow, TOP, 0, defaultYInset)
+		header:SetAnchor(TOP, floatingWindow, TOP, 0, 5)
 		header:SetFont("ZoFontAnnounceMedium")
 		--attach a backdrop to make the window easy to move around.
 		local backdrop = WINDOW_MANAGER:CreateControlFromVirtual("LibQRCodeBackdrop", floatingWindow, "ZO_DefaultBackdrop")
@@ -178,8 +172,8 @@ local function DrawQRCode_Floating(data)
 		backdrop:SetDrawTier(DT_LOW)
 		--Make a close button for the window, put it in the top right of the window
 		local closeButton = WINDOW_MANAGER:CreateControl("LibQRCodeCloseButton", floatingWindow, CT_BUTTON)
-		closeButton:SetDimensions(defaultHeaderHeight, defaultHeaderHeight)
-		closeButton:SetAnchor(TOPRIGHT, floatingWindow, TOPRIGHT, defaultXInset, defaultYInset)
+		closeButton:SetDimensions(30, 30)
+		closeButton:SetAnchor(TOPRIGHT, floatingWindow, TOPRIGHT, 5, 5)
 		closeButton:SetHandler("OnClicked", function() 
 			SCENE_MANAGER:ToggleTopLevel(floatingWindow) 
 			floatingWindow:SetHidden(true) 
@@ -197,14 +191,14 @@ local function DrawQRCode_Floating(data)
 	end
 	
 	if qrContainer == nil then
-		qrContainer = LibQRCode.CreateQRControl(defaultTextureSize, data)
+		qrContainer = LibQRCode.CreateQRControl(200, data)
 	else
 		LibQRCode.DrawQRCode(qrContainer, data)
 	end
 	--WINDOW_MANAGER:CreateControl("LibQRCodeDrawing", floatingWindow, CT_TEXTURE)
 	qrContainer:SetParent(floatingWindow)
-	qrContainer:SetAnchor(TOPLEFT, floatingWindow, TOPLEFT, defaultXInset, defaultHeaderHeight + 2 * defaultYInset)
-	qrContainer:SetAnchor(BOTTOMRIGHT, floatingWindow, BOTTOMRIGHT, -defaultXInset, -defaultYInset)
+	qrContainer:SetAnchor(TOPLEFT, floatingWindow, TOPLEFT, 5, 40)
+	qrContainer:SetAnchor(BOTTOMRIGHT, floatingWindow, BOTTOMRIGHT, -5, -5)
 end
 
 local function DrawQRCode_FloatingTest(n)
