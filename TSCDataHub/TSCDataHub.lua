@@ -3,9 +3,6 @@ local TSCDataHub = {
     version = "0.0.1",
 }
 
--- Get LibAsync reference
-local async = LibAsync
-
 -- Local references for performance
 local EVENT_MANAGER = EVENT_MANAGER
 local zo_callLater = zo_callLater
@@ -40,23 +37,18 @@ local CURRENT_MAX_CHARS   -- Will be set based on platform and user preference
 
 -- Capture settings
 local selectedGuildSlot = 1
+local daysToCapture = 1
 
 -- URL submission state
 local urlTable = nil
 local currentUrlIndex = nil
 local totalUrls = nil
 
--- Async processing state
-TSCDataHub.currentTask = nil
-TSCDataHub.progressText = ""
-TSCDataHub.isProcessing = false
-
 local OVERRIDE_AND_USE_CONSOLE_LIMITS = false
 
 -- Default settings structure
 TSCDataHub.default = {
     trackPersonalSales = false,
-    guildSubmissionTracking = {}, -- Track last submission timestamp per guild
 }
 
 -- ============================================================================
@@ -165,67 +157,6 @@ function TSCDataHub.updateSubmitButton()
     end
 end
 
-function TSCDataHub.updateProgress(text)
-    TSCDataHub.progressText = text or ""
-    TSCDataHub.updateSubmitButton()
-end
-
-function TSCDataHub.setProcessing(processing)
-    TSCDataHub.isProcessing = processing
-    if not processing then
-        TSCDataHub.progressText = ""
-        TSCDataHub.currentTask = nil
-    end
-    TSCDataHub.updateSubmitButton()
-end
-
--- ============================================================================
--- SUBMISSION TRACKING FUNCTIONS
--- ============================================================================
-
-local function getSubmissionTracking(guildId)
-    if not savedVars.guildSubmissionTracking then
-        savedVars.guildSubmissionTracking = {}
-    end
-    return savedVars.guildSubmissionTracking[guildId]
-end
-
-local function setSubmissionTracking(guildId, timestamp, eventId)
-    if not savedVars.guildSubmissionTracking then
-        savedVars.guildSubmissionTracking = {}
-    end
-    savedVars.guildSubmissionTracking[guildId] = {
-        lastSubmissionTime = timestamp,
-        lastSubmissionEventId = eventId
-    }
-end
-
-local function clearAllSubmissionTracking()
-    if savedVars.guildSubmissionTracking then
-        savedVars.guildSubmissionTracking = {}
-        CHAT_ROUTER:AddSystemMessage("[TSC] Cleared submission tracking for all guilds")
-    end
-end
-
-local function findNewestEventInBatch(salesEvents)
-    if not salesEvents or #salesEvents == 0 then
-        return nil, nil
-    end
-
-    local newestTime = 0
-    local newestEventId = nil
-
-    for _, event in ipairs(salesEvents) do
-        if event.timestamp > newestTime then
-            newestTime = event.timestamp
-            newestEventId = event.eventId
-        end
-    end
-
-    return newestTime, newestEventId
-end
-
--- Now that submission tracking functions are defined, we can define submitNextURL
 function TSCDataHub.submitNextURL()
     if not urlTable or not currentUrlIndex or currentUrlIndex > totalUrls then
         return
@@ -235,18 +166,6 @@ function TSCDataHub.submitNextURL()
     if url then
         RequestOpenUnsafeURL(url)
         currentUrlIndex = currentUrlIndex + 1
-
-        -- Check if all URLs have been submitted
-        if currentUrlIndex > totalUrls then
-            -- All URLs submitted - now update the submission tracking
-            if urlTable.pendingSubmissionTracking then
-                local pending = urlTable.pendingSubmissionTracking
-                setSubmissionTracking(pending.guildId, pending.timestamp, pending.eventId)
-                CHAT_ROUTER:AddSystemMessage("All data submitted successfully - submission tracking updated")
-                urlTable.pendingSubmissionTracking = nil
-            end
-        end
-
         TSCDataHub.updateSubmitButton()
     end
 end
@@ -429,87 +348,7 @@ local function processEventBatch(guildId, category, startIndex, endIndex)
     return salesEvents
 end
 
-local function processAllEventsAsync(guildId, category, startIndex, endIndex, callback)
-    -- Create async task for processing all events
-    local task = async:Create("ProcessAllEvents")
-    TSCDataHub.currentTask = task
-    
-    local totalEvents = endIndex - startIndex + 1
-    local allSalesEvents = {}
-    local totalSalesCount = 0
-    local totalProcessedEvents = 0
-    local eventTypeCounts = {}
-    
-    local EVENT_BATCH_SIZE = 100
-    local currentBatchStart = startIndex
-    
-    -- CHAT_ROUTER:AddSystemMessage("[TSC] Starting to process " .. totalEvents .. " events in batches of " .. EVENT_BATCH_SIZE)
-    
-    local function processBatch()
-        if currentBatchStart > endIndex then
-            -- All batches complete
-            -- CHAT_ROUTER:AddSystemMessage("[TSC] Completed processing all events. Found " .. totalSalesCount .. " sales events out of " .. totalProcessedEvents .. " total events")
-            if callback then
-                callback(allSalesEvents)
-            end
-            return
-        end
-        
-        local batchEnd = math.min(currentBatchStart + EVENT_BATCH_SIZE - 1, endIndex)
-        local batchNum = math.floor((currentBatchStart - startIndex) / EVENT_BATCH_SIZE) + 1
-        local totalBatches = math.ceil(totalEvents / EVENT_BATCH_SIZE)
-        
-        -- Process this batch asynchronously
-        task:Call(function()
-            local batchSalesEvents = {}
-            local batchSalesCount = 0
-            
-            -- Process events in this batch
-            for index = currentBatchStart, batchEnd do
-                totalProcessedEvents = totalProcessedEvents + 1
-                
-                -- Fetch basic event data
-                local eventData = fetchEventData(guildId, category, index)
-                if eventData then
-                    -- Track event types for debugging
-                    local eventType = eventData.eventType or "unknown"
-                    eventTypeCounts[eventType] = (eventTypeCounts[eventType] or 0) + 1
-                    
-                    -- Check if it's a sales event
-                    if isSalesEvent(eventData) then
-                        batchSalesCount = batchSalesCount + 1
-                        totalSalesCount = totalSalesCount + 1
-                        
-                        -- Get detailed sales data
-                        local salesData = extractSalesDetails(eventData)
-                        if salesData then
-                            table.insert(batchSalesEvents, salesData)
-                            table.insert(allSalesEvents, salesData)
-                        end
-                    end
-                end
-            end
-        end):Then(function()
-            -- Move to next batch
-            currentBatchStart = currentBatchStart + EVENT_BATCH_SIZE
-            processBatch() -- Continue with next batch
-        end)
-    end
-    
-    -- Start processing batches
-    task:Call(function()
-        processBatch()
-    end):OnError(function(task)
-        CHAT_ROUTER:AddSystemMessage("[TSC] Error processing events: " .. tostring(task.Error))
-        if callback then
-            callback({})
-        end
-    end):Finally(function()
-        TSCDataHub.currentTask = nil
-    end)
-end
-
-local function fetchGuildSalesAsync(guildId, startTime, callback)
+local function fetchGuildSalesBatch(guildId, startTime, callback)
     local currentTime = GetTimeStamp()
 
     -- Use TRADER category for sales data
@@ -518,7 +357,7 @@ local function fetchGuildSalesAsync(guildId, startTime, callback)
 
     if not newestIndex or not oldestIndex then
         CHAT_ROUTER:AddSystemMessage("No guild history events found in time range")
-        callback({})
+        callback(nil, {}, true)
         return
     end
 
@@ -530,16 +369,13 @@ local function fetchGuildSalesAsync(guildId, startTime, callback)
         startIndex, endIndex = newestIndex, oldestIndex
     end
 
-    local totalEvents = endIndex - startIndex + 1
-    -- CHAT_ROUTER:AddSystemMessage("[TSC] Processing " .. totalEvents .. " events from guild history (indices " .. startIndex .. " to " .. endIndex .. ")")
-
     -- Wait for guild history to be ready before processing
     waitForGuildHistory(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, function()
-        -- Process ALL events using our new async function that handles all batches
-        processAllEventsAsync(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, startIndex, endIndex, function(salesEvents)
-            -- Return all the sales events to the callback
-            callback(salesEvents)
-        end)
+        -- Process the event batch using our new modular functions
+        local salesEvents = processEventBatch(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, startIndex, endIndex)
+
+        -- Return the sales events to the callback
+        callback(salesEvents, true)
     end)
 end
 
@@ -641,74 +477,6 @@ local function createEncodedBatches(encodedTransactions, maxTransactionChars)
     return batches
 end
 
-local function encodeAllTransactionsAsync(salesEvents, referenceTimestamp, callback)
-    if not salesEvents or #salesEvents == 0 then
-        callback({})
-        return
-    end
-    
-    local task = async:Create("EncodeAllTransactions")
-    TSCDataHub.currentTask = task
-    
-    local totalTransactions = #salesEvents
-    local allEncodedTransactions = {}
-    local totalProcessedTransactions = 0
-    
-    local ENCODING_BATCH_SIZE = 100
-    local currentBatchStart = 1
-    
-    -- CHAT_ROUTER:AddSystemMessage("[TSC] Starting to encode " .. totalTransactions .. " transactions in batches of " .. ENCODING_BATCH_SIZE)
-    
-    local function encodeBatch()
-        if currentBatchStart > totalTransactions then
-            -- All batches complete
-            -- CHAT_ROUTER:AddSystemMessage("[TSC] Completed encoding all transactions. Total: " .. #allEncodedTransactions)
-            if callback then
-                callback(allEncodedTransactions)
-            end
-            return
-        end
-        
-        local batchEnd = math.min(currentBatchStart + ENCODING_BATCH_SIZE - 1, totalTransactions)
-        local batchNum = math.floor((currentBatchStart - 1) / ENCODING_BATCH_SIZE) + 1
-        local totalBatches = math.ceil(totalTransactions / ENCODING_BATCH_SIZE)
-        
-        -- Encode this batch asynchronously
-        task:Call(function()
-            local batchEncodedTransactions = {}
-            
-            -- Encode transactions in this batch
-            for i = currentBatchStart, batchEnd do
-                local transaction = salesEvents[i]
-                local encoded = encodeTransaction(transaction, referenceTimestamp)
-                local encodedTxn = {
-                    encoded = encoded,
-                    timestamp = transaction.timestamp
-                }
-                table.insert(batchEncodedTransactions, encodedTxn)
-                table.insert(allEncodedTransactions, encodedTxn)
-                totalProcessedTransactions = totalProcessedTransactions + 1
-            end
-        end):Then(function()
-            -- Move to next batch
-            currentBatchStart = currentBatchStart + ENCODING_BATCH_SIZE
-            encodeBatch() -- Continue with next batch
-        end)
-    end
-    
-    -- Start encoding batches
-    task:Call(function()
-        encodeBatch()
-    end):OnError(function(task)
-        CHAT_ROUTER:AddSystemMessage("[TSC] Error encoding transactions: " .. tostring(task.Error))
-        if callback then
-            callback({})
-        end
-    end):Finally(function()
-        TSCDataHub.currentTask = nil
-    end)
-end
-
 -- ============================================================================
 -- SERVICE FUNCTIONS
 -- ============================================================================
@@ -734,36 +502,15 @@ local function validateGuildSlot(guildSlot)
     return true
 end
 
-local function getGuildData(guildSlot)
+local function getGuildData(guildSlot, daysToCapture)
     local guildId = GetGuildId(guildSlot)
     local obfuscatedId = obfuscateGuildId(guildId)
+
+    -- Calculate start time based on user-selected days
     local currentTime = GetTimeStamp()
-    local sevenDaysAgo = currentTime - (7 * 24 * 60 * 60)
+    local startTime = currentTime - (daysToCapture * 86400) -- 86400 = seconds per day
 
-    -- Check submission tracking to determine start time
-    local submissionTracking = getSubmissionTracking(guildId)
-    local startTime
-
-    if submissionTracking and submissionTracking.lastSubmissionTime then
-        -- Returning user: only get data newer than last submission
-        startTime = submissionTracking.lastSubmissionTime + 1
-
-        -- But enforce 7-day maximum lookback for very old submissions
-        if startTime < sevenDaysAgo then
-            startTime = sevenDaysAgo
-            CHAT_ROUTER:AddSystemMessage("Last submission was >7 days ago, capturing last 7 days")
-        else
-            local daysSinceSubmission = math.floor((currentTime - submissionTracking.lastSubmissionTime) / 86400)
-            CHAT_ROUTER:AddSystemMessage("Capturing new data since last submission (" ..
-                daysSinceSubmission .. " days ago)")
-        end
-    else
-        -- New user: get up to 7 days
-        startTime = sevenDaysAgo
-        CHAT_ROUTER:AddSystemMessage("First time capturing this guild - getting up to 7 days of data")
-    end
-    
-    -- CHAT_ROUTER:AddSystemMessage("[TSC] Time range: " .. startTime .. " to " .. currentTime .. " (duration: " .. string.format("%.1f", (currentTime - startTime) / 86400) .. " days)")
+    CHAT_ROUTER:AddSystemMessage("Capturing data from " .. daysToCapture .. " days ago (timestamp: " .. startTime .. ")")
 
     return {
         guildId = guildId,
@@ -777,13 +524,7 @@ end
 -- CONTROLLER FUNCTIONS
 -- ============================================================================
 
-local function CheckGuildAndCollect(guildSlot)
-    -- Prevent multiple simultaneous operations
-    if TSCDataHub.isProcessing then
-        CHAT_ROUTER:AddSystemMessage("[TSC] Processing already in progress. Please wait or cancel current operation.")
-        return
-    end
-    
+local function CheckGuildAndCollect(guildSlot, daysToCapture)
     -- Step 1: Validate guild slot
     local isValid, errorMsg = validateGuildSlot(guildSlot)
     if not isValid then
@@ -791,70 +532,62 @@ local function CheckGuildAndCollect(guildSlot)
         return
     end
 
-    -- Step 2: Get guild data with automatic windowing
-    local guildData = getGuildData(guildSlot)
+    -- Step 2: Get guild data
+    local guildData = getGuildData(guildSlot, daysToCapture)
 
     -- CHAT_ROUTER:AddSystemMessage("Starting data collection for guild " .. guildData.obfuscatedId)
 
-    -- Step 3: Start async data collection for the entire time range
+    -- Step 3: Start batch data collection
+    local batchNumber = 1
+
     urlTable = {} -- Store all URLs for data export
+
+    local function processBatch(salesEvents, isLastBatch)
+        if salesEvents and #salesEvents > 0 then
+            -- Use collection start time as universal reference for delta compression
+            local referenceTimestamp = guildData.startTime
+
+            -- Step 1: Encode all transactions with reference-based deltas
+            local encodedTransactions = {}
+            for _, transaction in ipairs(salesEvents) do
+                local encoded = encodeTransaction(transaction, referenceTimestamp)
+                table.insert(encodedTransactions, {
+                    encoded = encoded,
+                    timestamp = transaction.timestamp
+                })
+            end
+
+            -- Step 2: Create character-aware batches using platform and method specific limits
+            -- CHAT_ROUTER:AddSystemMessage("Using " .. CURRENT_MAX_CHARS .. " character limit for direct URLs")
+            local batches = createEncodedBatches(encodedTransactions, CURRENT_MAX_CHARS)
+
+            -- Step 3: Create URLs from encoded batches with reference timestamp
+            for i, batch in ipairs(batches) do
+                local url = createURLFromEncodedBatch(batch, guildData.obfuscatedId, referenceTimestamp)
+                table.insert(urlTable, url)
+            end
+
+            batchNumber = batchNumber + #batches
+
+            if not isLastBatch then
+                -- Continue to next batch
+                fetchGuildSalesBatch(guildData.guildId, guildData.startTime, processBatch)
+            else
+                if #urlTable > 0 then
+                    -- Store URLs for manual submission
+                    urlTable = urlTable
+                    currentUrlIndex = 1
+                    totalUrls = #urlTable
+                    -- Update the submit button to be enabled
+                    TSCDataHub.updateSubmitButton()
+                end
+            end
+        end
+    end
 
     -- Wait a bit for guild history to be ready (like LibHistoire does)
     zo_callLater(function()
-        -- Fetch ALL sales data for the time range using async processing
-        fetchGuildSalesAsync(guildData.guildId, guildData.startTime, function(salesEvents)
-            if salesEvents and #salesEvents > 0 then
-                -- Use collection start time as universal reference for delta compression
-                local referenceTimestamp = guildData.startTime
-
-                -- Step 1: Encode all transactions asynchronously  
-                encodeAllTransactionsAsync(salesEvents, referenceTimestamp, function(encodedTransactions)
-                    if #encodedTransactions > 0 then
-                        -- Step 2: Create character-aware batches using platform and method specific limits
-                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Creating batches from " .. #encodedTransactions .. " transactions with " .. CURRENT_MAX_CHARS .. " char limit")
-                        local batches = createEncodedBatches(encodedTransactions, CURRENT_MAX_CHARS)
-                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Created " .. #batches .. " URL batches")
-
-                        -- Step 3: Create URLs from encoded batches with reference timestamp
-                        for i, batch in ipairs(batches) do
-                            local url = createURLFromEncodedBatch(batch, guildData.obfuscatedId, referenceTimestamp)
-                            -- CHAT_ROUTER:AddSystemMessage("[TSC] URL " .. i .. " length: " .. string.len(url) .. " chars")
-                            table.insert(urlTable, url)
-                        end
-
-                        if #urlTable > 0 then
-                            -- Store URLs for manual submission
-                            currentUrlIndex = 1
-                            totalUrls = #urlTable
-
-                            -- Store data for submission tracking update after submission
-                            local newestTime, newestEventId = findNewestEventInBatch(salesEvents)
-                            if newestTime then
-                                -- Store these for updating after all URLs are submitted
-                                urlTable.pendingSubmissionTracking = {
-                                    guildId = guildData.guildId,
-                                    timestamp = newestTime,
-                                    eventId = newestEventId
-                                }
-                            end
-
-                            TSCDataHub.setProcessing(false)
-                            -- CHAT_ROUTER:AddSystemMessage("[TSC] Processing complete! Ready to submit " .. totalUrls .. " URLs")
-                            TSCDataHub.updateSubmitButton()
-                        else
-                            TSCDataHub.setProcessing(false)
-                            CHAT_ROUTER:AddSystemMessage("No new data found to submit")
-                        end
-                    else
-                        TSCDataHub.setProcessing(false)
-                        CHAT_ROUTER:AddSystemMessage("No transactions to encode")
-                    end
-                end)
-            else
-                TSCDataHub.setProcessing(false)
-                CHAT_ROUTER:AddSystemMessage("No sales events found in the specified time range")
-            end
-        end)
+        fetchGuildSalesBatch(guildData.guildId, guildData.startTime, processBatch)
     end, 1000) -- Wait 1 second before starting
 end
 
@@ -975,97 +708,8 @@ Scan the QR code to view full update details]],
     }
     settings:AddSetting(tradingSettingsSection)
 
-
-
-    -- Days to capture is now handled automatically by the windowing system
-    local automaticCaptureInfo = {
-        type = LHAS.ST_LABEL,
-        label = "Data is captured automatically based on your submission history:\n" ..
-            "• First time: Up to 7 days of data\n" ..
-            "• Returning users: Only new data since last submission\n" ..
-            "• No duplicate data sent to server",
-    }
-    settings:AddSetting(automaticCaptureInfo)
-
-    --[[
-        GUILD STATUS SECTION
-    --]]
-    local guildStatusSection = {
-        type = LHAS.ST_SECTION,
-        label = "Guild Status",
-    }
-    settings:AddSetting(guildStatusSection)
-
-    -- Create simple status labels for each guild the player is in
-    local guildStatusLabels = {}
-    local numGuilds = GetNumGuilds()
-
-    for i = 1, numGuilds do
-        local guildStatusLabel = {
-            type = LHAS.ST_LABEL,
-            label = function()
-                local guildId = GetGuildId(i)
-                local guildName = GetGuildName(guildId)
-
-                -- Check if guild has new data to submit
-                local submissionTracking = getSubmissionTracking(guildId)
-                local statusText = "Ready to upload"
-                local color = "|c00FF00" -- Green
-
-                if submissionTracking and submissionTracking.lastSubmissionTime then
-                    -- Check if there's new data since last submission
-                    local numEvents = GetNumGuildHistoryEvents(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
-                    if numEvents > 0 then
-                        local _, newestTime = GetGuildHistoryEventBasicInfo(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER,
-                            1)
-                        if newestTime and newestTime > submissionTracking.lastSubmissionTime then
-                            statusText = "Ready to upload"
-                            color = "|c00FF00" -- Green
-                        else
-                            statusText = "Up to date"
-                            color = "|c888888" -- Gray
-                        end
-                    else
-                        statusText = "No data available"
-                        color = "|c888888" -- Gray
-                    end
-                else
-                    -- No previous submission
-                    statusText = "Ready to upload"
-                    color = "|c00FF00" -- Green
-                end
-
-                return color .. guildName .. " - " .. statusText .. "|r"
-            end,
-        }
-        settings:AddSetting(guildStatusLabel)
-        guildStatusLabels[i] = guildStatusLabel
-    end
-
-    --[[
-        REFRESH STATUS BUTTON
-    --]]
-
-    -- local refreshStatus = {
-    --     type = LHAS.ST_BUTTON,
-    --     label = "Refresh Status",
-    --     tooltip = "Update the guild status display",
-    --     buttonText = "Refresh",
-    --     clickHandler = function()
-    --         -- Force refresh of all status labels
-    --         if TSCDataHub.settings and TSCDataHub.settings.UpdateControls then
-    --             TSCDataHub.settings:UpdateControls()
-    --         end
-    --     end,
-    -- }
-    -- settings:AddSetting(refreshStatus)
-
-    --[[
-        GUILD SELECTOR SECTION
-    --]]
-
     local guildSelectorControl = {
-        type = LHAS.ST_DROPDOWN,
+        type = LibHarvensAddonSettings.ST_DROPDOWN,
         label = "Guild",
         tooltip = "Choose the guild you want to track",
         items = function()
@@ -1099,53 +743,41 @@ Scan the QR code to view full update details]],
     }
     settings:AddSetting(guildSelectorControl)
 
-
-
-    --[[
-        CAPTURE BUTTON SECTION
-    --]]
+    local daysToCaptureSlider = {
+        type = LibHarvensAddonSettings.ST_SLIDER,
+        label = "Days to Capture",
+        tooltip = "Number of days to go back when capturing guild data (1 = today only, 7 = full week)",
+        min = 1,
+        max = 7,
+        step = 1,
+        format = "%d",
+        unit = " days",
+        getFunction = function()
+            return daysToCapture
+        end,
+        setFunction = function(value)
+            daysToCapture = value
+        end,
+        default = 1
+    }
+    settings:AddSetting(daysToCaptureSlider)
 
     local captureButton = {
-        type = LHAS.ST_BUTTON,
+        type = LibHarvensAddonSettings.ST_BUTTON,
         label = "Capture Guild Data",
-        tooltip = "Start capturing new guild data for the selected guild (automatically determines what data to capture)",
-        buttonText = function()
-            if TSCDataHub.isProcessing then
-                return "Processing..."
-            end
-            return "Capture"
-        end,
-        disable = function()
-            return TSCDataHub.isProcessing
-        end,
+        tooltip = "Start capturing guild data for the selected guild and number of days",
+        buttonText = "Capture",
         clickHandler = function()
             if selectedGuildSlot then
-                return CheckGuildAndCollect(selectedGuildSlot)
+                -- CHAT_ROUTER:AddSystemMessage("Starting capture for guild slot " ..
+                --     selectedGuildSlot .. " with " .. daysToCapture .. " days")
+                return CheckGuildAndCollect(selectedGuildSlot, daysToCapture)
             else
-                CHAT_ROUTER:AddSystemMessage("Please select a guild first")
+                -- CHAT_ROUTER:AddSystemMessage("Please select a guild first")
             end
         end
     }
     settings:AddSetting(captureButton)
-
-    --[[
-        CLEAR TRACKING BUTTON
-    --]]
-
-    local clearTrackingButton = {
-        type = LHAS.ST_BUTTON,
-        label = "Clear Submission Tracking",
-        tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to upload'",
-        buttonText = "Clear Tracking",
-        clickHandler = function()
-            clearAllSubmissionTracking()
-            -- Refresh the status display after clearing
-            if TSCDataHub.settings and TSCDataHub.settings.UpdateControls then
-                TSCDataHub.settings:UpdateControls()
-            end
-        end,
-    }
-    settings:AddSetting(clearTrackingButton)
 
     --[[
         URL SUBMISSION SECTION
@@ -1155,37 +787,6 @@ Scan the QR code to view full update details]],
         label = "URL Submission",
     }
     settings:AddSetting(urlSubmissionSection)
-
-    -- Progress bar display
-    local progressDisplay = {
-        type = LHAS.ST_LABEL,
-        label = function()
-            if not TSCDataHub.isProcessing or TSCDataHub.progressText == "" then
-                return ""
-            end
-            return TSCDataHub.progressText
-        end,
-    }
-    settings:AddSetting(progressDisplay)
-
-    -- Cancel button (only visible during processing)
-    -- local cancelButton = {
-    --     type = LHAS.ST_BUTTON,
-    --     label = "Cancel Processing",
-    --     tooltip = "Cancel the current data processing operation",
-    --     buttonText = "Cancel",
-    --     disable = function()
-    --         return not isProcessing
-    --     end,
-    --     clickHandler = function()
-    --         if TSCDataHub.currentTask then
-    --             TSCDataHub.currentTask:Cancel()
-    --             CHAT_ROUTER:AddSystemMessage("[TSC] Processing cancelled")
-    --         end
-    --         TSCDataHub.setProcessing(false)
-    --     end,
-    -- }
-    -- settings:AddSetting(cancelButton)
 
     local submitButton = {
         type = LHAS.ST_BUTTON,
@@ -1246,43 +847,33 @@ local function setServerPlatform()
     local worldName = GetWorldName()
     local platform = GetUIPlatform()
 
-    -- Xbox servers have specific world names
-    if worldName == "XB1live" then
-        SERVER_PLATFORM = 0 -- NA Xbox
-    elseif worldName == "XB1live-eu" then
-        SERVER_PLATFORM = 3 -- EU Xbox
-    -- PC servers use NA/EU in the world name (case-insensitive)
-    elseif string.find(string.upper(worldName), "NA") then
-        if platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+    if string.find(worldName, "NA") then
+        if platform == UI_PLATFORM_XBOX then
+            SERVER_PLATFORM = 0 -- NA Xbox
+        elseif platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
             SERVER_PLATFORM = 1 -- NA PlayStation
         else
             SERVER_PLATFORM = 2 -- NA PC
         end
-    elseif string.find(string.upper(worldName), "EU") then
-        if platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+    elseif string.find(worldName, "EU") then
+        if platform == UI_PLATFORM_XBOX then
+            SERVER_PLATFORM = 3 -- EU Xbox
+        elseif platform == UI_PLATFORM_PS5 then
             SERVER_PLATFORM = 4 -- EU PlayStation
         else
             SERVER_PLATFORM = 5 -- EU PC
         end
-    elseif string.find(string.upper(worldName), "PTS") then
+    elseif string.find(worldName, "PTS") then
         SERVER_PLATFORM = 6 -- PTS PC (only platform that has PTS)
     else
-        -- Unknown world name - fallback to platform detection
-        if platform == UI_PLATFORM_XBOX then
-            SERVER_PLATFORM = 0 -- Default to NA Xbox
-        elseif platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
-            SERVER_PLATFORM = 1 -- Default to NA PlayStation
-        else
-            SERVER_PLATFORM = 2 -- Default to NA PC
-        end
-        CHAT_ROUTER:AddSystemMessage("[TSC] Unknown world name: " .. worldName .. " - using platform fallback")
+        SERVER_PLATFORM = 9 -- Unknown
     end
 end
 
 local function getServerPlatform()
     local platformNames = {
         [0] = "Xbox NA",
-        [1] = "PlayStation NA",
+        [1] = "PlayStation NA", 
         [2] = "PC NA",
         [3] = "Xbox EU",
         [4] = "PlayStation EU",
@@ -1290,15 +881,17 @@ local function getServerPlatform()
         [6] = "PTS PC",
         [9] = "Unknown"
     }
-
+    
     -- local platformName = platformNames[SERVER_PLATFORM] or "Unknown"
     -- CHAT_ROUTER:AddSystemMessage("You are playing on: " .. platformName)
     -- return platformName
     local worldName = GetWorldName()
     local platform = GetUIPlatform()
-    CHAT_ROUTER:AddSystemMessage("GetWorldName: " .. worldName)
+    CHAT_ROUTER:AddSystemMessage("GetWorldName: " .. worldName )
     CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platform)
     CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platformNames[platform])
+
+
 end
 
 local function initialize()
@@ -1314,23 +907,23 @@ local function initialize()
     PLAYER_ACCOUNT_NAME = string.gsub(GetDisplayName(), "^@", " ")
 
     SLASH_COMMANDS["/tscdhg1"] = function()
-        CheckGuildAndCollect(1)
+        CheckGuildAndCollect(1, 2)
     end
 
     SLASH_COMMANDS["/tscdhg2"] = function()
-        CheckGuildAndCollect(2)
+        CheckGuildAndCollect(2, 2)
     end
 
     SLASH_COMMANDS["/tscdhg3"] = function()
-        CheckGuildAndCollect(3)
+        CheckGuildAndCollect(3, 2)
     end
 
     SLASH_COMMANDS["/tscdhg4"] = function()
-        CheckGuildAndCollect(4)
+        CheckGuildAndCollect(4, 2)
     end
 
     SLASH_COMMANDS["/tscdhg5"] = function()
-        CheckGuildAndCollect(5)
+        CheckGuildAndCollect(5, 2)
     end
 
     SLASH_COMMANDS["/tester"] = function()
@@ -1339,72 +932,6 @@ local function initialize()
         CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
         CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
         CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
-    end
-
-    -- Cache Management Commands
-    SLASH_COMMANDS["/status"] = function()
-        CHAT_ROUTER:AddSystemMessage("[TSC] Guild Cache Status:")
-        for i = 1, GetNumGuilds() do
-            local guildId = GetGuildId(i)
-            local guildName = GetGuildName(guildId)
-            local numEvents = GetNumGuildHistoryEvents(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
-            CHAT_ROUTER:AddSystemMessage("  " .. i .. ". " .. guildName .. ": " .. numEvents .. " trader events")
-        end
-    end
-
-    SLASH_COMMANDS["/check"] = function()
-        if LibHistoire then
-            if LibHistoire:IsReady() then
-                CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Ready")
-            else
-                CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Available but not ready yet")
-            end
-        else
-            CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Not found - cache warming disabled")
-        end
-    end
-
-    SLASH_COMMANDS["/guilds"] = function()
-        CHAT_ROUTER:AddSystemMessage("[TSC] Your Guild Slots:")
-        local numGuilds = GetNumGuilds()
-        if numGuilds == 0 then
-            CHAT_ROUTER:AddSystemMessage("  No guilds found")
-            return
-        end
-
-        for i = 1, numGuilds do
-            local guildId = GetGuildId(i)
-            local guildName = GetGuildName(guildId)
-            CHAT_ROUTER:AddSystemMessage("  Slot " .. i .. ": " .. guildName)
-        end
-    end
-
-    SLASH_COMMANDS["/clear"] = function()
-        CHAT_ROUTER:AddSystemMessage("[TSC] Clearing guild history cache for all guilds...")
-        for i = 1, GetNumGuilds() do
-            local guildId = GetGuildId(i)
-            local guildName = GetGuildName(guildId)
-            local result = ClearGuildHistoryCache(guildId)
-            CHAT_ROUTER:AddSystemMessage("  " .. guildName .. ": " .. (result and "cleared" or "failed"))
-        end
-        CHAT_ROUTER:AddSystemMessage("[TSC] Cache clearing complete")
-    end
-
-    SLASH_COMMANDS["/debug"] = function()
-        CHAT_ROUTER:AddSystemMessage("[TSC] Debug Info:")
-        if LibHistoire then
-            CHAT_ROUTER:AddSystemMessage("  LibHistoire ready: " .. tostring(LibHistoire:IsReady()))
-            if LibHistoire.internal and LibHistoire.internal.historyCache then
-                CHAT_ROUTER:AddSystemMessage("  History cache exists: true")
-                CHAT_ROUTER:AddSystemMessage("  Is processing: " ..
-                    tostring(LibHistoire.internal.historyCache:IsProcessing()))
-            else
-                CHAT_ROUTER:AddSystemMessage("  History cache exists: false")
-            end
-        else
-            CHAT_ROUTER:AddSystemMessage("  LibHistoire: not found")
-        end
-        CHAT_ROUTER:AddSystemMessage("  GetTimeStamp(): " .. GetTimeStamp())
     end
 
     isInitialized = true

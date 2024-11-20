@@ -1,9 +1,9 @@
 ## Author: BesideMyself, SavageTSC
 ## Description: TSC addon used to export sales data via QR code
-## APIVersion: 101046
-## AddOnVersion: 105
+## APIVersion: 101045 101046 101047 101048
+## AddOnVersion: 102
 ## SavedVariables: TSCDataHubData
-## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000 LibHistoire>=1070 LibAsync>=30000
+## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000
 ##
 ## This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
 ## The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
