@@ -28,7 +28,7 @@ end
     Usage: Debug.log("something happened")
 ]]
 function Debug.log(msg)
-    CHAT_ROUTER:AddSystemMessage(colorize("[TSC] " .. msg, COLORS.INFO))
+    d(colorize("[TSC] " .. msg, COLORS.INFO))
 end
 
 --[[
@@ -36,7 +36,7 @@ end
     Usage: Debug.warn("this might be a problem")
 ]]
 function Debug.warn(msg)
-    CHAT_ROUTER:AddSystemMessage(colorize("[TSC][WARN] " .. msg, COLORS.WARN))
+    d(colorize("[TSC][WARN] " .. msg, COLORS.WARN))
 end
 
 --[[
@@ -44,7 +44,7 @@ end
     Usage: Debug.error("this is definitely a problem")
 ]]
 function Debug.error(msg)
-    CHAT_ROUTER:AddSystemMessage(colorize("[TSC][ERROR] " .. msg, COLORS.ERROR))
+    d(colorize("[TSC][ERROR] " .. msg, COLORS.ERROR))
 end
 
 --[[
@@ -52,7 +52,7 @@ end
     Usage: Debug.success("Addon initialization started")
 ]]
 function Debug.success(msg)
-    CHAT_ROUTER:AddSystemMessage(colorize("[TSC][SUCCESS] " .. msg, COLORS.SUCCESS))
+    d(colorize("[TSC][SUCCESS] " .. msg, COLORS.SUCCESS))
 end
 
 TSC_DebugModule = Debug

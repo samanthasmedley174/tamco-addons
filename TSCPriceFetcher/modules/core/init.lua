@@ -12,35 +12,40 @@ Init.isInitialized = false
 -- Flag to prevent infinite recursion in trading house price override
 local inPriceOverride = false
 
-local function HookGamepadTooltips()
-    local function OnPlayerActivated()
-        EVENT_MANAGER:UnregisterForEvent("TSCUniversalContext", EVENT_PLAYER_ACTIVATED)
-
-        zo_callLater(function()
-            if GAMEPAD_TOOLTIPS then
-                local leftTooltip = GAMEPAD_TOOLTIPS:GetTooltip(GAMEPAD_LEFT_TOOLTIP)
-                local rightTooltip = GAMEPAD_TOOLTIPS:GetTooltip(GAMEPAD_RIGHT_TOOLTIP)
-
-                -- Hook into LEFT tooltip
-                if leftTooltip then
-                    ZO_PostHook(leftTooltip, "LayoutItem", function(self, itemLink)
-                        TSCPriceFetcher.modules.tooltips.AddPriceToGamepadTooltip(GAMEPAD_TOOLTIPS, GAMEPAD_LEFT_TOOLTIP,
-                            itemLink)
-                    end)
-                end
-
-                -- Hook into RIGHT tooltip
-                if rightTooltip then
-                    ZO_PostHook(rightTooltip, "LayoutItem", function(self, itemLink)
-                        TSCPriceFetcher.modules.tooltips.AddPriceToGamepadTooltip(GAMEPAD_TOOLTIPS, GAMEPAD_RIGHT_TOOLTIP,
-                        itemLink)
-                    end)
-                end
-            end
-        end, 1000)
+-- Helper: Extract itemLink from selectedData
+local function ExtractItemLink(selectedData)
+    if not selectedData then return nil end
+    if selectedData.bagId and selectedData.slotIndex then
+        return GetItemLink(selectedData.bagId, selectedData.slotIndex)
+    elseif selectedData.itemLink then
+        return selectedData.itemLink
     end
+    return nil
+end
 
-    EVENT_MANAGER:RegisterForEvent("TSCUniversalContext", EVENT_PLAYER_ACTIVATED, OnPlayerActivated)
+-- Helper: Validate selectedData for price display
+local function IsValidItem(selectedData, itemLink)
+    if not selectedData then return false end
+    if selectedData.isCurrencyEntry or selectedData.isMundusEntry then return false end
+    if not itemLink then return false end
+    local itemName = GetItemLinkName(itemLink)
+    if not itemName or itemName == "" then return false end
+    return true
+end
+
+-- Handler for inventory tooltip
+local function OnGamepadInventoryTooltip(self, selectedData)
+    local itemLink = ExtractItemLink(selectedData)
+    if not IsValidItem(selectedData, itemLink) then return end
+
+    local tooltipObject = GAMEPAD_TOOLTIPS
+    local tooltipType = GAMEPAD_LEFT_TOOLTIP
+
+    TSCPriceFetcher.modules.tooltips.AddPriceToGamepadTooltip(tooltipObject, tooltipType, itemLink)
+end
+
+local function HookGamepadTooltips()
+    SecurePostHook(ZO_GamepadInventory, "UpdateItemLeftTooltip", OnGamepadInventoryTooltip)
 end
 
 -- Set up guild store price auto-population using SetListingPrice

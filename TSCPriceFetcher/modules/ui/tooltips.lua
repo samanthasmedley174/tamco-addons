@@ -5,6 +5,104 @@
 ]]
 local Tooltips = {}
 
+-- Constants
+local COLORS = {
+    TSC_GREEN = "009449"
+}
+
+--[[
+    Checks if the tooltip already contains a price line from this addon.
+    Prevents duplicate price info from being added.
+    @param tooltip (table): The tooltip object to check.
+    @return (boolean): true if price info is present, false otherwise.
+]]
+local function TooltipHasPriceLine(tooltip)
+    if not tooltip then
+        return false
+    end
+
+    -- Check scrollTooltip.contents (classic way)
+    if tooltip.scrollTooltip and tooltip.scrollTooltip.contents and tooltip.scrollTooltip.contents.GetNumChildren then
+        local content = tooltip.scrollTooltip.contents
+        local numChildren = content:GetNumChildren()
+        for i = 1, numChildren do
+            local child = content:GetChild(i)
+            if child and child.GetText then
+                local text = child:GetText()
+                if text and text:find("Average Price: ") then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- Check direct children (for tooltips without scrollTooltip)
+    if tooltip.GetNumChildren then
+        local numChildren = tooltip:GetNumChildren()
+        for i = 1, numChildren do
+            local child = tooltip:GetChild(i)
+            if child and child.GetText then
+                local text = child:GetText()
+                if text and text:find("Average Price: ") then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local function colorize(msg, color)
+    return string.format("|c%s%s|r", color, tostring(msg))
+end
+
+--[[
+    Adds a formatted price section to the tooltip.
+    @param tooltip (table): The tooltip object to modify.
+    @param itemLink (string): The item link string.
+]]
+local function AddPriceSection(tooltip, itemLink)
+    local priceSection = tooltip:AcquireSection(tooltip:GetStyle("bodySection"))
+    priceSection:AddLine(colorize("Tamriel Savings Co", COLORS.TSC_GREEN), tooltip:GetStyle("bodyDescription"))
+
+    -- Check if item is bound first - if so, just show bound message and return
+    if IsItemLinkBound(itemLink) then
+        priceSection:AddLine("Bound Item", tooltip:GetStyle("bodyDescription"))
+        tooltip:AddSection(priceSection)
+        return
+    end
+
+    -- Item is not bound, check if we have price data
+    local formattedPrice = TSCPriceFetcher.modules.dataAdapter.getFormattedAvgPrice(itemLink)
+    local priceRange = TSCPriceFetcher.modules.dataAdapter.getFormattedPriceRange(itemLink)
+    local salesCount = TSCPriceFetcher.modules.dataAdapter.getSalesCount(itemLink)
+
+    -- Check if we have any price data at all
+    local hasData = formattedPrice or priceRange or salesCount
+
+    if not hasData then
+        priceSection:AddLine("No Price Data Available", tooltip:GetStyle("bodyDescription"))
+        tooltip:AddSection(priceSection)
+        return
+    end
+
+    -- We have price data, show it all
+    if formattedPrice then
+        priceSection:AddLine("Average Price: " .. formattedPrice, tooltip:GetStyle("bodyDescription"))
+    end
+
+    if priceRange then
+        priceSection:AddLine("Range: " .. priceRange, tooltip:GetStyle("bodyDescription"))
+    end
+
+    if salesCount then
+        priceSection:AddLine("Sales: " .. tostring(salesCount), tooltip:GetStyle("bodyDescription"))
+    end
+
+    tooltip:AddSection(priceSection)
+end
+
 --[[
     Determines if the tooltip context and item link are valid for price display.
     @param tooltipType (number): The tooltip type (e.g., GAMEPAD_LEFT_TOOLTIP).
@@ -42,12 +140,16 @@ function Tooltips.AddPriceToGamepadTooltip(tooltipObject, tooltipType, itemLink)
     local tooltip = tooltipObject:GetTooltip(tooltipType)
     if not tooltip then return end
 
-    if TSC_UtilsModule.TooltipHasPriceInfo(tooltip) then return end
+    if TooltipHasPriceLine(tooltip) then return end
 
     local success, result = pcall(function()
-        TSC_UtilsModule.AddPriceInfoSection(tooltip, itemLink)
+        AddPriceSection(tooltip, itemLink)
         return true
     end)
+
+    -- if not success and TSCPriceFetcher and TSCPriceFetcher.modules and TSCPriceFetcher.modules.debug then
+        -- TSCPriceFetcher.modules.debug.error("Failed to add price to tooltip: " .. tostring(result))
+    -- end
 end
 
 TSC_TooltipsModule = Tooltips

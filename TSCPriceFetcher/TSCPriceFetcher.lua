@@ -55,6 +55,8 @@ function TSCPriceFetcher.initializeDataSource()
 
     if not TSCPriceFetcher.priceEnabled then
         notifyMissingData()
+    else
+        TSCPriceFetcher.modules.debug.success("Using " .. TSCPriceFetcher.dataSource .. " data source")
     end
 end
 
