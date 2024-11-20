@@ -418,21 +418,6 @@ function LibHarvensAddonSettings.AddonSettings:UpdateControls()
 	needUpdate = false
 end
 
-function LibHarvensAddonSettings.AddonSettings:RefreshSelection()
-	local list = LibHarvensAddonSettings.list
-	if #self.settings > 0 then
-		list:SetSelectedIndexWithoutAnimation(
-			list:FindFirstIndexByEval(
-				function(data)
-					return data == self.lastSelectedRow
-				end
-			) or list:CalculateFirstSelectableIndex(),
-			true,
-			false
-		)
-	end
-end
-
 ----- end -----
 
 function LibHarvensAddonSettings:RefreshAddonSettings()
@@ -627,11 +612,22 @@ local function OptionsWindowFragmentStateChangeRefresh(oldState, newState)
 	elseif newState == SCENE_FRAGMENT_SHOWING then
 		if needUpdate and currentSettings ~= nil then
 			LibHarvensAddonSettings:RefreshAddonSettings()
-		elseif currentSettings == nil and #LibHarvensAddonSettings.addons == 1 then
+		elseif #LibHarvensAddonSettings.addons == 1 then
 			LibHarvensAddonSettings:SelectFirstAddon()
 		end
 		if currentSettings then
-			currentSettings:RefreshSelection()
+			local list = LibHarvensAddonSettings.list
+			if #currentSettings.settings > 0 then
+				list:SetSelectedIndexWithoutAnimation(
+					list:FindFirstIndexByEval(
+						function(data)
+							return data == currentSettings.lastSelectedRow
+						end
+					) or list:CalculateFirstSelectableIndex(),
+					true,
+					false
+				)
+			end
 		end
 	end
 end

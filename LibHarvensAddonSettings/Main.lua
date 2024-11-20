@@ -243,7 +243,6 @@ end
 
 function AddonSettings:Clear()
 	self.settings = {}
-	self.selected = false
 end
 -----
 
