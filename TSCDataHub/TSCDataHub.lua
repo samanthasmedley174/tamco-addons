@@ -16,42 +16,10 @@ local ONE_DAY_SECONDS = 24 * 60 * 60
 local MAX_ALLOWED_CHARS = 7800 -- 8000 max from aws policy, subtracted 200 for safety
 
 -- QR_BATCH_SIZE removed - now using character-aware batching with URL character limits
--- URL configuration for submissions
--- Set to true for production, false for local testing
-local USE_PRODUCTION_URL = true
-
--- Local testing configuration
-local LOCAL_BASE_URL = "http://localhost:3000"
-local LOCAL_PATH_PREFIX = "/dev/esoapp/submissions"
-
--- Production configuration
-local PROD_BASE_URL = "https://late-violet-4084.fly.dev"
-local PROD_PATH_PREFIX = "/prod/esoapp/submissions"
-
+-- local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
+local PROD_URL = "https://hoaqwezhmo4zayp55rwdiufveq0eizca.lambda-url.us-east-2.on.aws/"
+-- local LOCAL_TESTING_URL = ""
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
-
--- Helper function to get base URL with website code
-local function getBaseURL()
-    local sv = TSCDataHub.savedVars
-    if not sv then
-        return nil
-    end
-    local websiteCode = sv.websiteCode or ""
-    if websiteCode == "" then
-        return nil -- Will be checked before use
-    end
-    
-    local baseURL, pathPrefix
-    if USE_PRODUCTION_URL then
-        baseURL = PROD_BASE_URL
-        pathPrefix = PROD_PATH_PREFIX
-    else
-        baseURL = LOCAL_BASE_URL
-        pathPrefix = LOCAL_PATH_PREFIX
-    end
-    
-    return string.format("%s%s/%s", baseURL, pathPrefix, websiteCode)
-end
 
 -- Default values for flags optimization
 local DEFAULT_QUALITY = 1  -- Normal quality (most common)
@@ -114,8 +82,6 @@ TSCDataHub.capturedGuildsThisSession = {} -- Track guilds captured in this sessi
 TSCDataHub.default = {
     trackPersonalSales = false,
     guildSubmissionTracking = {}, -- Track last submission timestamp per guild
-    websiteCode = "", -- 32-character alphanumeric code for personal submission page
-    pin = "", -- User PIN for authentication
 }
 
 -- =========================================================================
@@ -685,23 +651,12 @@ local function encodeTransaction(transaction, minTimestamp)
 end
 
 local function computeBatchBudget(guildId, guildName, referenceTimestamp)
-    local baseURL = getBaseURL()
-    if not baseURL then
-        return 0, "", "" -- Invalid - website code missing
-    end
-
-    local sv = TSCDataHub.savedVars
-    if not sv or not sv.pin or sv.pin == "" then
-        return 0, "", "" -- Invalid - PIN missing
-    end
-
     local playerName = savedVars.trackPersonalSales and PLAYER_ACCOUNT_NAME or "0"
     local encodedPlayerName = urlEncode(playerName)
     local encodedGuildName = urlEncode(guildName)
-    local encodedPin = urlEncode(sv.pin)
 
-    local fixedPrefix = string.format("%s?code=%s&sp=%d&g=%d&gn=%s&t=%d&p=%s&d=",
-        baseURL, encodedPin, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
+    local fixedPrefix = string.format("%s?sp=%d&g=%d&gn=%s&t=%d&p=%s&d=",
+        PROD_URL, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
 
     local budget = MAX_ALLOWED_CHARS - #fixedPrefix
     if budget < 0 then
@@ -712,21 +667,10 @@ local function computeBatchBudget(guildId, guildName, referenceTimestamp)
 end
 
 local function createURLFromEncodedBatch(encodedBatch, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
-    local baseURL = getBaseURL()
-    if not baseURL then
-        return nil, 0 -- Invalid - website code missing
-    end
-
-    local sv = TSCDataHub.savedVars
-    if not sv or not sv.pin or sv.pin == "" then
-        return nil, 0 -- Invalid - PIN missing
-    end
-
-    local encodedPin = urlEncode(sv.pin)
     local dataString = table.concat(encodedBatch.encodedTransactions, TRANSACTION_SEPARATOR)
 
-    local url = string.format("%s?code=%s&sp=%d&g=%d&gn=%s&t=%d&p=%s&d=%s",
-        baseURL, encodedPin, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName, dataString)
+    local url = string.format("%s?sp=%d&g=%d&gn=%s&t=%d&p=%s&d=%s",
+        PROD_URL, SERVER_PLATFORM, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName, dataString)
 
     return url, #url
 end
@@ -942,29 +886,11 @@ local function CheckGuildAndCollect(guildSlot)
                         -- Step 2: Create character-aware batches using platform and method specific limits
                         -- CHAT_ROUTER:AddSystemMessage("[TSC] Creating batches from " .. #encodedTransactions .. " transactions with " .. MAX_ALLOWED_CHARS .. " char limit")
                         local batchBudget, encodedPlayerName, encodedGuildName = computeBatchBudget(guildData.guildId, guildData.guildName, referenceTimestamp)
-                        local sv = TSCDataHub.savedVars
-                        if batchBudget == 0 and (not sv or not sv.websiteCode or sv.websiteCode == "") then
-                            CHAT_ROUTER:AddSystemMessage("[TSC] Error: Website code is required to create submission URLs")
-                            TSCDataHub.setProcessing(false)
-                            return
-                        end
-                        if not sv or not sv.pin or sv.pin == "" then
-                            CHAT_ROUTER:AddSystemMessage("[TSC] Error: PIN is required to create submission URLs")
-                            TSCDataHub.setProcessing(false)
-                            return
-                        end
                         local batches = createEncodedBatches(encodedTransactions, batchBudget)
 
                         for i, batch in ipairs(batches) do
                             local url, length = createURLFromEncodedBatch(batch, guildData.guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
-                            local sv = TSCDataHub.savedVars
-                            if not url then
-                                CHAT_ROUTER:AddSystemMessage("[TSC] Error: Website code is required to create submission URLs")
-                                break
-                            elseif not sv or not sv.pin or sv.pin == "" then
-                                CHAT_ROUTER:AddSystemMessage("[TSC] Error: PIN is required to create submission URLs")
-                                break
-                            elseif length > MAX_ALLOWED_CHARS then
+                            if length > MAX_ALLOWED_CHARS then
                                 CHAT_ROUTER:AddSystemMessage(string.format("[TSC] Warning: URL %d length (%d) exceeded limit, skipping", i, length))
                             else
                                 table.insert(urlTable, url)
@@ -1051,7 +977,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v123: Testing Release]],
+        tooltip = [[v122: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1108,7 +1034,6 @@ local function setupSettingsMenu()
         type = LHAS.ST_BUTTON,
         label = "How To",
         tooltip =
-            "First, enter your Website Code and PIN in the 'Data Submission Settings' section below.\n\n" ..
             "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
             "Do this for each guild you want to capture data for.\n\n" ..
             "To submit the data, click the 'Submit URL ...' button below.\n\n" ..
@@ -1124,37 +1049,9 @@ local function setupSettingsMenu()
     --]]
     local tradingSettingsSection = {
         type = LHAS.ST_SECTION,
-        label = "Data Submission Settings",
+        label = "Sales Tracking Settings",
     }
     settings:AddSetting(tradingSettingsSection)
-
-    local websiteCodeSetting = {
-        type = LHAS.ST_EDIT,
-        label = "Website Code",
-        tooltip = "Enter your 32-character website code to enable data submissions. This code identifies your personal submission page.",
-        maxChars = 32,
-        setFunction = function(value)
-            savedVars.websiteCode = value or ""
-        end,
-        getFunction = function()
-            return savedVars.websiteCode or ""
-        end,
-    }
-    settings:AddSetting(websiteCodeSetting)
-
-    local pinSetting = {
-        type = LHAS.ST_EDIT,
-        label = "PIN",
-        tooltip = "Enter your PIN for authentication.",
-        maxChars = 8,
-        setFunction = function(value)
-            savedVars.pin = value or ""
-        end,
-        getFunction = function()
-            return savedVars.pin or ""
-        end,
-    }
-    settings:AddSetting(pinSetting)
 
     --[[
         We will be keeping this disabled for now as we are not ready to track personal sales yet.
@@ -1263,20 +1160,6 @@ local function setupSettingsMenu()
                 return "Capture"
             end,
             disable = function()
-                local sv = TSCDataHub.savedVars
-                if not sv then
-                    return true
-                end
-                -- Disable if website code is missing
-                local websiteCode = sv.websiteCode or ""
-                if websiteCode == "" then
-                    return true
-                end
-                -- Disable if PIN is missing
-                local pin = sv.pin or ""
-                if pin == "" then
-                    return true
-                end
                 local currentGuildId = GetGuildId(guildSlot)
                 return TSCDataHub.isProcessing or TSCDataHub.capturedGuildsThisSession[currentGuildId]
             end,
@@ -1310,16 +1193,6 @@ local function setupSettingsMenu()
         tooltip = "Submit the next URL in the queue",
         buttonText = "Submit",
         disable = function()
-            -- Disable if website code is missing
-            local websiteCode = savedVars and savedVars.websiteCode or ""
-            if websiteCode == "" then
-                return true
-            end
-            -- Disable if PIN is missing
-            local pin = savedVars and savedVars.pin or ""
-            if pin == "" then
-                return true
-            end
             -- Disable during processing
             if TSCDataHub.isProcessing then
                 return true
@@ -1382,15 +1255,12 @@ local function initializeSavedVars()
     savedVars = TSCDataHub.savedVars
 
     -- Handle migration by adding any missing default fields
-    -- Always ensure all default fields exist (not just on version change)
-    for key, defaultValue in pairs(TSCDataHub.default) do
-        if TSCDataHub.savedVars[key] == nil then
-            TSCDataHub.savedVars[key] = defaultValue
-        end
-    end
-    
-    -- Update version if needed
     if TSCDataHub.savedVars.version ~= SAVED_VARS_VERSION then
+        for key, defaultValue in pairs(TSCDataHub.default) do
+            if TSCDataHub.savedVars[key] == nil then
+                TSCDataHub.savedVars[key] = defaultValue
+            end
+        end
         TSCDataHub.savedVars.version = SAVED_VARS_VERSION
     end
 end
@@ -1446,15 +1316,13 @@ local function initialize()
     --     CheckGuildAndCollect(5)
     -- end
 
-    SLASH_COMMANDS["/tester"] = function()
-        -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PC: " .. UI_PLATFORM_PC)
-        -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS4: " .. UI_PLATFORM_PS4)
-        -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
-        -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
-        -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
-        CHAT_ROUTER:AddSystemMessage("PIN: " .. savedVars.pin)
-        CHAT_ROUTER:AddSystemMessage("WEBSITE_CODE: " .. savedVars.websiteCode)
-    end
+    -- SLASH_COMMANDS["/tester"] = function()
+    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PC: " .. UI_PLATFORM_PC)
+    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS4: " .. UI_PLATFORM_PS4)
+    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
+    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
+    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
+    -- end
 
     -- Cache Management Commands
     SLASH_COMMANDS["/tscstatus"] = function()
