@@ -3,7 +3,7 @@ if LibHarvensAddonSettings then
 end
 
 LibHarvensAddonSettings = {}
-LibHarvensAddonSettings.version = 20002
+LibHarvensAddonSettings.version = 20001
 local LibHarvensAddonSettings = LibHarvensAddonSettings
 
 -----
@@ -17,7 +17,6 @@ LibHarvensAddonSettings.ST_COLOR = 5
 LibHarvensAddonSettings.ST_BUTTON = 6
 LibHarvensAddonSettings.ST_LABEL = 7
 LibHarvensAddonSettings.ST_SECTION = 8
-LibHarvensAddonSettings.ST_ICONPICKER = 9
 -----
 
 LibHarvensAddonSettings.addons = {}
@@ -104,8 +103,7 @@ function AddonSettingsControl:ResetToDefaults()
 		self:SetValue(self.default)
 		if self.control then
 			local itemIndex = 1
-			local items = self:GetValueOrCallback(self.items)
-			for i = 1, #items do
+			for i = 1, #self.items do
 				if self.items[i].name == self.default then
 					itemIndex = i
 					break
@@ -117,11 +115,6 @@ function AddonSettingsControl:ResetToDefaults()
 	elseif self.type == LibHarvensAddonSettings.ST_COLOR then
 		self:SetValue(unpack(self.default))
 		self.setFunction(unpack(self.default))
-	elseif self.type == LibHarvensAddonSettings.ST_ICONPICKER then
-		self:SetValue(self.default or 1)
-		local items = self:GetValueOrCallback(self.items)
-		local combobox = self.control:GetDropDown()
-		self.setFunction(combobox, self.default, self.items[self.default])
 	elseif self.setFunction then
 		self:SetValue(self.default)
 		self.setFunction(self.default)

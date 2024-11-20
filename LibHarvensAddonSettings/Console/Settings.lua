@@ -8,8 +8,7 @@ local Templates = {
 	[LibHarvensAddonSettings.ST_COLOR] = "ZO_GamepadOptionsColorRow",
 	[LibHarvensAddonSettings.ST_BUTTON] = "ZO_GamepadOptionsLabelRow",
 	[LibHarvensAddonSettings.ST_LABEL] = "ZO_GamepadOptionsLabelRow",
-	[LibHarvensAddonSettings.ST_SECTION] = "ZO_Options_SectionTitle_WithDivider",
-	[LibHarvensAddonSettings.ST_ICONPICKER] = "LibHarvensAddonSettingsGamepadIconPicker"
+	[LibHarvensAddonSettings.ST_SECTION] = "ZO_Options_SectionTitle_WithDivider"
 }
 
 local currentSettings
@@ -62,10 +61,6 @@ local changeControlStateFunctions = {
 		SetNameControlState(control, state)
 		local color = control.texture
 		color:SetAlpha(ZO_GamepadMenuEntryTemplate_GetAlpha(state))
-	end,
-	[LibHarvensAddonSettings.ST_ICONPICKER] = function(control, state)
-		SetNameControlState(control, state)
-		control:GetDropDown():SetSelectedFromParent(state)
 	end
 }
 
@@ -173,23 +168,6 @@ local updateControlFunctions = {
 			self.control.texture:SetColor(self.getFunction())
 		end
 		--Click is handled in keystrip
-	end,
-	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self, control)
-		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
-		local combobox = control:GetDropDown()
-		combobox:SetOnSelectedDataChangedCallback(nil)
-		combobox:Clear()
-		local itemEntry
-		local callback = function(data)
-			self:ValueChanged(control, data.index, data.icon)
-		end
-		local items = self:GetValueOrCallback(self.items)
-		for i = 1, #items do
-			combobox:AddEntry({index = i, icon = items[i], data = self})
-		end
-		combobox:Commit()
-		combobox:SetSelectedIndex(combobox:FindIndexFromData({index = self.getFunction()}, combobox.equalityFunction) or self.default or 0, false, true)
-		combobox:SetOnSelectedDataChangedCallback(callback)
 	end
 }
 
@@ -225,9 +203,6 @@ local createControlFunctions = {
 	end,
 	[LibHarvensAddonSettings.ST_COLOR] = function(self, lastControl)
 		LibHarvensAddonSettings.list:AddEntry(Templates[self.type], self)
-	end,
-	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self, lastControl)
-		LibHarvensAddonSettings.list:AddEntry(Templates[self.type], self)
 	end
 }
 
@@ -256,10 +231,6 @@ local cleanControlFunctions = {
 	end,
 	[LibHarvensAddonSettings.ST_COLOR] = function(self)
 		self.control:GetNamedChild("Name"):SetText(nil)
-	end,
-	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self)
-		local combobox = self.control:GetDropDown()
-		combobox:SetOnSelectedDataChangedCallback(nil)
 	end
 }
 
@@ -321,15 +292,6 @@ local setupControlFunctions = {
 		self.tooltipText = params.tooltip
 	end,
 	[LibHarvensAddonSettings.ST_COLOR] = function(self, params)
-		self.labelText = params.label
-		self.tooltipText = params.tooltip
-		self.setFunction = params.setFunction
-		self.getFunction = params.getFunction
-		self.default = params.default
-		self.disable = params.disable
-	end,
-	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self, params)
-		self.items = params.items
 		self.labelText = params.label
 		self.tooltipText = params.tooltip
 		self.setFunction = params.setFunction
@@ -454,8 +416,7 @@ function Settings_ParametricList:InitializeKeybindStripDescriptors()
 	}
 	local CONTROL_TYPES_WITH_INPUT = {
 		[LibHarvensAddonSettings.ST_SLIDER] = true,
-		[LibHarvensAddonSettings.ST_DROPDOWN] = true,
-		[LibHarvensAddonSettings.ST_ICONPICKER] = true
+		[LibHarvensAddonSettings.ST_DROPDOWN] = true
 	}
 	local lastActiveInput
 	self.keybindStripDescriptor = {
@@ -534,7 +495,7 @@ function Settings_ParametricList:InitializeKeybindStripDescriptors()
 			name = GetString(SI_OPTIONS_DEFAULTS),
 			keybind = "UI_SHORTCUT_SECONDARY",
 			visible = function()
-				return currentSettings and currentSettings.hasDefaults and currentSettings.allowDefaults
+				return currentSettings and currentSettings.hasDefaults
 			end,
 			callback = function()
 				ZO_Dialogs_ShowGamepadDialog("LibHarvensAddonSettings_Defaults")
@@ -922,11 +883,11 @@ function LibHarvensAddonSettings:CreateControlPools()
 		},
 		{
 			font = "ZoFontGamepad27",
-			lineLimit = 6
+			lineLimit = 6,
 		},
 		{
 			font = "ZoFontGamepad22",
-			lineLimit = 7
+			lineLimit = 7,
 		}
 	}
 	AddPool(
@@ -950,39 +911,6 @@ function LibHarvensAddonSettings:CreateControlPools()
 		end
 	)
 
-	local function setupIconPicker(control, data, selected, reselectingDuringRebuild, enabled, selectedFromParent)
-		control:SetText(zo_iconFormat(data.icon, 60, 60))
-
-		local color = selectedFromParent and ZO_SELECTED_TEXT or ZO_DISABLED_TEXT
-		control:SetColor(color:UnpackRGBA())
-	end
-	local function equalityFunctionIconPicker(leftData, rightData)
-		return leftData.index == rightData.index
-	end
-	AddPool(
-		self.ST_ICONPICKER,
-		"IconPicker",
-		function(control)
-			local horizontalListObject = control.horizontalListObject
-			horizontalListObject.setupFunction = setupIconPicker
-			horizontalListObject.equalityFunction = equalityFunctionIconPicker
-			control:GetNamedChild("HorizontalList"):SetHeight(64)
-			function control:Activate()
-				self:GetDropDown():Activate()
-			end
-			function control:Deactivate()
-				self:GetDropDown():Deactivate()
-			end
-			function control:GetDropDown()
-				return self.horizontalListObject
-			end
-			function control:SetValue(data)
-				local combobox = self:GetDropDown()
-				combobox:SetSelectedIndex(combobox:FindIndexFromData({index = data}, combobox.equalityFunction), false, false)
-			end
-		end
-	)
-
 	self.list:SetNoItemText(GetString(SI_GAMEPAD_MARKET_LOCKED_TITLE))
 end
 
@@ -991,7 +919,7 @@ function LibHarvensAddonSettings:CreateAddonList()
 end
 
 local function OptionsWindowFragmentStateChange(oldState, newState)
-	if newState ~= SCENE_SHOWING or LibHarvensAddonSettings.initialized then
+	if newState ~= SCENE_FRAGMENT_SHOWING or LibHarvensAddonSettings.initialized then
 		return
 	end
 
