@@ -85,11 +85,11 @@ function AddonSettingsControl:ValueChanged(...)
 end
 
 function AddonSettingsControl:GetValueOrCallback(arg)
-	return type(arg) == "function" and arg(self) or arg
-end
-
-function AddonSettingsControl:GetString(strOrId)
-	return type(strOrId) == "number" and GetString(strOrId) or strOrId
+	if type(arg) == "function" then
+		return arg(self)
+	else
+		return arg
+	end
 end
 
 function AddonSettingsControl:SetValue(...)
@@ -239,10 +239,6 @@ function AddonSettings:GetOverallHeight()
 		sum = sum + self.settings[i]:GetHeight()
 	end
 	return sum
-end
-
-function AddonSettings:Clear()
-	self.settings = {}
 end
 -----
 

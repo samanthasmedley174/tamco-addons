@@ -71,7 +71,7 @@ local changeControlStateFunctions = {
 
 local updateControlFunctions = {
 	[LibHarvensAddonSettings.ST_CHECKBOX] = function(self, control)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
 
 		local function toggle(control, state)
 			if state then
@@ -97,7 +97,7 @@ local updateControlFunctions = {
 		)
 	end,
 	[LibHarvensAddonSettings.ST_SLIDER] = function(self, control)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
 		local slider = control.slider
 		slider:SetHandler("OnValueChanged", nil)
 		slider:SetMinMax(self.min, self.max)
@@ -105,7 +105,7 @@ local updateControlFunctions = {
 		local label = slider.label
 		local value = self.getFunction() or "0"
 		if self.unit and #self.unit > 0 then
-			label:SetText(value .. self:GetString(self:GetValueOrCallback(self.unit)))
+			label:SetText(value .. self:GetValueOrCallback(self.unit))
 		else
 			label:SetText(value)
 		end
@@ -115,7 +115,7 @@ local updateControlFunctions = {
 			function(control, value)
 				local formattedValue = tonumber(string.format(self.format, value))
 				if self.unit and #self.unit > 0 then
-					control.label:SetText(formattedValue .. self:GetString(self:GetValueOrCallback(self.unit)))
+					control.label:SetText(formattedValue .. self:GetValueOrCallback(self.unit))
 				else
 					control.label:SetText(formattedValue)
 				end
@@ -125,12 +125,12 @@ local updateControlFunctions = {
 	end,
 	[LibHarvensAddonSettings.ST_BUTTON] = function(self, control)
 		control:SetHidden(false)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText) or self:GetValueOrCallback(self.buttonText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText) or self:GetValueOrCallback(self.buttonText))
 		--click handled in keystrip
 	end,
 	[LibHarvensAddonSettings.ST_EDIT] = function(self, control)
 		control:SetHidden(false)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
 		local editControl = control.editBox
 		editControl:SetTextType(self.textType or TEXT_TYPE_ALL)
 		editControl:SetMaxInputChars(self.maxInputChars or MAX_HELP_DESCRIPTION_BODY)
@@ -138,7 +138,7 @@ local updateControlFunctions = {
 		editControl:SetColor(ZO_NORMAL_TEXT:UnpackRGB())
 	end,
 	[LibHarvensAddonSettings.ST_DROPDOWN] = function(self, control)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
 		local combobox = control:GetDropDown()
 		combobox:SetOnSelectedDataChangedCallback(nil)
 		combobox:Clear()
@@ -156,22 +156,17 @@ local updateControlFunctions = {
 	end,
 	[LibHarvensAddonSettings.ST_LABEL] = function(self, control)
 		local label = control.label
-		label:SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
-		if self.canSelect ~= nil then
-			control.canSelect = self:GetValueOrCallback(self.canSelect)
-		else
-			self.canSelect = self.tooltipText ~= nil
-		end
+		label:SetText(self:GetValueOrCallback(self.labelText))
 		control:SetHeight(label:GetTextHeight())
 	end,
 	[LibHarvensAddonSettings.ST_SECTION] = function(self, control)
 		local label = control.label
-		label:SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		label:SetText(self:GetValueOrCallback(self.labelText))
 		control:SetHeight(label:GetTextHeight() + 4)
 	end,
 	[LibHarvensAddonSettings.ST_COLOR] = function(self, control)
 		local label = control:GetNamedChild("Name")
-		label:SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		label:SetText(self:GetValueOrCallback(self.labelText))
 		self.control:GetNamedChild("Color"):SetColor(self.getFunction())
 		local function OnColorSet(r, g, b, a)
 			self:ValueChanged(r, g, b, a)
@@ -180,7 +175,7 @@ local updateControlFunctions = {
 		--Click is handled in keystrip
 	end,
 	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self, control)
-		control:GetNamedChild("Name"):SetText(self:GetString(self:GetValueOrCallback(self.labelText)))
+		control:GetNamedChild("Name"):SetText(self:GetValueOrCallback(self.labelText))
 		local combobox = control:GetDropDown()
 		combobox:SetOnSelectedDataChangedCallback(nil)
 		combobox:Clear()
@@ -222,6 +217,7 @@ local createControlFunctions = {
 	end,
 	[LibHarvensAddonSettings.ST_LABEL] = function(self, lastControl)
 		LibHarvensAddonSettings.list:AddEntry(Templates[self.type], self)
+		self.canSelect = false
 	end,
 	[LibHarvensAddonSettings.ST_SECTION] = function(self, lastControl)
 		LibHarvensAddonSettings.list:AddEntry(Templates[self.type], self)
@@ -275,7 +271,6 @@ local setupControlFunctions = {
 		self.getFunction = params.getFunction
 		self.default = params.default
 		self.disable = params.disable
-		self.canSelect = params.canSelect
 	end,
 	[LibHarvensAddonSettings.ST_SLIDER] = function(self, params)
 		self.min = params.min
@@ -320,7 +315,6 @@ local setupControlFunctions = {
 	[LibHarvensAddonSettings.ST_LABEL] = function(self, params)
 		self.labelText = params.label
 		self.tooltipText = params.tooltip
-		self.canSelect = params.canSelect
 	end,
 	[LibHarvensAddonSettings.ST_SECTION] = function(self, params)
 		self.labelText = params.label
@@ -472,7 +466,7 @@ function Settings_ParametricList:InitializeKeybindStripDescriptors()
 				if data and data.type == LibHarvensAddonSettings.ST_CHECKBOX then
 					return GetString(SI_GAMEPAD_TOGGLE_OPTION)
 				elseif data and data.type == LibHarvensAddonSettings.ST_BUTTON then
-					return data:GetString(data:GetValueOrCallback(data.buttonText) or GetString(SI_GAMEPAD_SELECT_OPTION))
+					return data:GetValueOrCallback(data.buttonText) or GetString(SI_GAMEPAD_SELECT_OPTION)
 				else
 					return GetString(SI_GAMEPAD_SELECT_OPTION)
 				end
@@ -516,10 +510,8 @@ function Settings_ParametricList:InitializeKeybindStripDescriptors()
 				local showingInfoPanel = false
 				if data then
 					if type(data.tooltipText) == "function" then
-						showingInfoPanel = true -- Not supported
-					elseif type(data.tooltipText) == "string" and #data.tooltipText > 0 then
-						showingInfoPanel = true
-					elseif type(data.tooltipText) == "number" and data.tooltipText > 0 then
+						showingInfoPanel = false -- Not supported
+					elseif data.tooltipText and #data.tooltipText > 0 then
 						showingInfoPanel = true
 					end
 					if CONTROL_TYPES_WITH_INPUT[data.type] and not data:IsDisabled() then
@@ -528,15 +520,8 @@ function Settings_ParametricList:InitializeKeybindStripDescriptors()
 					end
 				end
 				if showingInfoPanel then
-					local text
-					if type(data.tooltipText) == "function" then
-						text = data:tooltipText()
-					elseif type(data.tooltipText) == "string" then
-						text = data.tooltipText
-					elseif type(data.tooltipText) == "number" then
-						text = GetString(data.tooltipText)
-					end
-					GAMEPAD_TOOLTIPS:LayoutSettingTooltip(GAMEPAD_LEFT_TOOLTIP, text, "")
+					--warningText
+					GAMEPAD_TOOLTIPS:LayoutSettingTooltip(GAMEPAD_LEFT_TOOLTIP, data.tooltipText, "")
 				else
 					GAMEPAD_TOOLTIPS:Reset(GAMEPAD_LEFT_TOOLTIP)
 				end
@@ -717,7 +702,7 @@ function LibHarvensAddonSettings:CreateAddonSettingsPanel()
 	)
 
 	local title = GetString(SI_GAME_MENU_ADDONS)
-	if LibAddonMenu2 and LibAddonMenu2.panelId then
+	if LibAddonMenu2 then
 		title = title .. " 2"
 	end
 	table.insert(
@@ -991,9 +976,9 @@ function LibHarvensAddonSettings:CreateControlPools()
 			function control:GetDropDown()
 				return self.horizontalListObject
 			end
-			function control:SetValue(index)
+			function control:SetValue(data)
 				local combobox = self:GetDropDown()
-				combobox:SetSelectedIndex(combobox:FindIndexFromData({index = index}, combobox.equalityFunction), false, false)
+				combobox:SetSelectedIndex(combobox:FindIndexFromData({index = data}, combobox.equalityFunction), false, false)
 			end
 		end
 	)
