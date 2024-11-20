@@ -17,7 +17,7 @@ local MAX_ALLOWED_CHARS = 7800 -- 8000 max from aws policy, subtracted 200 for s
 
 -- QR_BATCH_SIZE removed - now using character-aware batching with URL character limits
 -- local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
-local PROD_URL = "https://hoaqwezhmo4zayp55rwdiufveq0eizca.lambda-url.us-east-2.on.aws/"
+local PROD_URL = "https://s4hqbc3lxismtzx6zvl33ylvjy0xcfix.lambda-url.us-east-2.on.aws/"
 -- local LOCAL_TESTING_URL = ""
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
@@ -29,27 +29,23 @@ local DEFAULT_QUANTITY = 1  -- Single item (most common)
 
 -- Flag Encoding Rules (for backend parsing):
 -- Flags are variable-length for compression optimization
--- Format: quality (1 digit) + optional quantity (3-4 digits, padded)
+-- Format: quality (1 digit) + optional quantity (3 digits, padded)
 -- 
 -- Possible flag lengths and meanings:
 --   0 chars: quality=1 (Normal), quantity=1 (defaults - no flags needed)
 --   1 char:  quality=2,3,4,5 with quantity=1
 --            Examples: "2"=Fine, "3"=Superior, "4"=Epic, "5"=Legendary
---   4 chars: quality (1-5) with quantity 2-999
+--   4 chars: any quality (1-5) with quantity != 1
 --            Format: quality (1 digit) + quantity (3 digits, zero-padded)
---            Examples: "1015"=Normal qty15, "2015"=Fine qty15, "1999"=Normal qty999
---   5 chars: quality (1-5) with quantity=1000
---            Format: quality (1 digit) + quantity (4 digits)
---            Examples: "11000"=Normal qty1000, "21000"=Fine qty1000, "51000"=Legendary qty1000
+--            Examples: "1015"=Normal qty15, "2015"=Fine qty15, "3015"=Superior qty15
 --
 -- Quality values: 1=Normal, 2=Fine, 3=Superior, 4=Epic, 5=Legendary
--- Quantity: 1-1000 (1 is default, omitted when quality is also default)
+-- Quantity: 1-999 (1 is default, omitted when quality is also default)
 --
 -- Backend parsing logic:
 --   if flags.length == 0: quality=1, quantity=1
 --   if flags.length == 1: quality=flags[0], quantity=1
---   if flags.length == 4: quality=flags[0], quantity=flags[1-3] (parse as int, range 2-999)
---   if flags.length == 5: quality=flags[0], quantity=flags[1-4] (parse as int, value=1000)
+--   if flags.length == 4: quality=flags[0], quantity=flags[1-3] (parse as int)
 
 local savedVars           -- Will be set after initialization
 local SERVER_PLATFORM     -- Will be set at initialization
@@ -338,12 +334,6 @@ local function extractSalesDetails(eventData)
     local quality = GetItemLinkFunctionalQuality(eventData.itemLink)
     -- CHAT_ROUTER:AddSystemMessage("extractSalesDetails: " .. quality)
 
-    -- Validate quality: must be 1-5 (1=Normal, 2=Fine, 3=Superior, 4=Epic, 5=Legendary)
-    -- If invalid (e.g., 0 from API edge cases with untradeable items), default to 1 (Normal)
-    if not quality or quality < 1 or quality > 5 then
-        quality = DEFAULT_QUALITY
-    end
-
     -- Convert to standardized transaction format
     return {
         itemId = itemId,
@@ -604,9 +594,8 @@ local function encodeFlags(quality, quantity)
     -- Quality values: 1=Normal, 2=Fine, 3=Superior, 4=Epic, 5=Legendary
     local flags = string.format("%d", quality)
 
-    -- Add quantity if it's not the default
-    -- Quantities 2-999: 3 digits zero-padded (results in 4-char flags)
-    -- Quantity 1000: 4 digits (results in 5-char flags)
+    -- Add quantity if it's not the default (3 digits, zero-padded)
+    -- This ensures quantity is always 3 digits when present (001-999)
     if quantity ~= DEFAULT_QUANTITY then
         flags = flags .. string.format("%03d", quantity)
     end
@@ -977,7 +966,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v122: Testing Release]],
+        tooltip = [[v121: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
