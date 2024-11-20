@@ -1,7 +1,7 @@
 -- TSCPriceFetcherXBNA.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcherXBNA",
-    version = 140
+    version = 143
 }
 
 -- Local references for performance
@@ -432,7 +432,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v140: The addon now validates your server and warns if you're using the wrong version. Make sure you download the version for your console and server (Xbox NA/EU or PlayStation NA/EU).
+        tooltip = [[v143: Updated with new sales data for week starting 2025-12-02.
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
