@@ -1,7 +1,7 @@
 -- TSCPriceFetcher.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcher",
-    version = 128
+    version = 127
 }
 
 -- Local references for performance
@@ -412,7 +412,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v128: Fix for keybinds not working after listing an item
+        tooltip = [[v127: Updated with new sales data for week starting 2025-08-12
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
@@ -748,57 +748,21 @@ local function addTradingKeybinds()
     KEYBIND_STRIP:AddKeybindButtonGroup(tradingKeybindGroup)
 end
 
--- OLD METHOD TO REMOVE KEYBINDS FROM ERIC
--- local function removeTradingKeybinds()
---     KEYBIND_STRIP:RemoveKeybindButtonGroup(tradingKeybindGroup)
--- end
-
--- NEW METHOD TO REMOVE KEYBINDS FROM MIDNITE
-local previousScene = ""
 local function removeTradingKeybinds()
-    if previousScene == "gamepad_trading_house_create_listing" then
-        KEYBIND_STRIP:RemoveKeybindButtonGroup(tradingKeybindGroup)
-        -- need to push and pop keybind group to restore system bindings
-        KEYBIND_STRIP:PushKeybindGroupState()
-        KEYBIND_STRIP:PopKeybindGroupState()
-    end
+    KEYBIND_STRIP:RemoveKeybindButtonGroup(tradingKeybindGroup)
 end
 
--- OLD METHOD TO ADD KEYBINDS FROM ERIC
--- local function setupTradingHouseKeybinds()
---     -- Add keybinds when entering trading house create listing scene
---     SCENE_MANAGER:RegisterCallback("SceneStateChanged", function(scene, newState)
---         local sceneName = scene:GetName()
-
---         -- Check for the correct trading house create listing scene
---         if newState == SCENE_SHOWING and sceneName == "gamepad_trading_house_create_listing" then
---             addTradingKeybinds()
---         elseif newState == SCENE_HIDING and sceneName == "gamepad_trading_house_create_listing" then
---             removeTradingKeybinds()
---         end
---     end)
--- end
-
--- NEW METHOD TO ADD KEYBINDS FROM MIDNITE
 local function setupTradingHouseKeybinds()
-
     -- Add keybinds when entering trading house create listing scene
     SCENE_MANAGER:RegisterCallback("SceneStateChanged", function(scene, newState)
         local sceneName = scene:GetName()
-        -- Remove keybinds when leaving trading house
-        EVENT_MANAGER:RegisterForEvent("OnGuildStoreClosed", EVENT_CLOSE_TRADING_HOUSE, function()
-            removeTradingKeybinds()
-            EVENT_MANAGER:UnregisterForEvent("OnGuildStoreClosed", EVENT_CLOSE_TRADING_HOUSE)
-        end)
 
         -- Check for the correct trading house create listing scene
         if newState == SCENE_SHOWING and sceneName == "gamepad_trading_house_create_listing" then
             addTradingKeybinds()
-        elseif  newState == SCENE_SHOWING and sceneName == "gamepad_trading_house" then
+        elseif newState == SCENE_HIDING and sceneName == "gamepad_trading_house_create_listing" then
             removeTradingKeybinds()
-            EVENT_MANAGER:UnregisterForEvent("OnGuildStoreClosed", EVENT_CLOSE_TRADING_HOUSE)
         end
-        previousScene = sceneName
     end)
 end
 
