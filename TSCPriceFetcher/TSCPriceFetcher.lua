@@ -1,7 +1,7 @@
 -- TSCPriceFetcher.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcher",
-    version = 121
+    version = 120
 }
 
 -- Local references for performance
@@ -67,7 +67,7 @@ local BLOCKING_SCENES = {
 }
 
 -- Saved variables version and announcement version
-local SAVED_VARS_VERSION = 8
+local SAVED_VARS_VERSION = 7
 local ANNOUNCEMENT_VERSION = TSC.version
 
 -- Default settings structure
@@ -93,8 +93,14 @@ end
 -- ============================================================================
 
 local function getAvgPrice(itemLink)
+    -- Get item ID from link
+    local itemId = GetItemLinkItemId(itemLink)
+    if not itemId then
+        return nil
+    end
+
     -- Since TSCPriceDataLite is a library dependency, it will always be available
-    return TSCPriceDataLite:GetPrice(itemLink) -- Returns nil if no data found
+    return TSCPriceDataLite:GetPrice(itemId) -- Returns nil if no data found
 end
 
 local function getFormattedAvgPrice(itemLink)
@@ -109,8 +115,14 @@ local function getFormattedAvgPrice(itemLink)
 end
 
 local function getFormattedPriceRange(itemLink)
+    -- Get item ID from link
+    local itemId = GetItemLinkItemId(itemLink)
+    if not itemId then
+        return nil
+    end
+
     -- Use the new GetItemData function
-    local itemData = TSCPriceDataLite:GetItemData(itemLink)
+    local itemData = TSCPriceDataLite:GetItemData(itemId)
     if not itemData or not itemData.commonMin or not itemData.commonMax then
         return nil
     end
@@ -412,7 +424,15 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v121: Minor feature release with code changes to support new data structure
+        tooltip = [[v120: Major feature release with settings and keybinds
+
+This update includes:
+• Added Common Price Range to the tooltip
+• Announcement panel on login informing players of new updates
+• Settings menu with links to the website
+• Setting for letting players toggle on or off the auto list at average price feature
+• Keybinds when listing an item letting players bump and round the price
+• Settings for letting players change their bump and round amounts
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
@@ -424,11 +444,11 @@ Scan the QR code to view full update details]],
 
     local bugReportButton = {
         type = LHAS.ST_BUTTON,
-        label = "Troubleshoot",
-        tooltip = "Generate a QR code that will link to the FAQ + Troubleshooting page on tamrielsavings.com",
+        label = "Report a Bug",
+        tooltip = "Generate a QR code that will link to the Contact Us page on tamrielsavings.com",
         buttonText = "Open QR Code",
         clickHandler = function(control, button)
-            showQRCode("https://tamrielsavings.com/faq", "Troubleshoot")
+            showQRCode("https://tamrielsavings.com/contact-us", "Report a Bug")
         end,
     }
     settings:AddSetting(bugReportButton)
