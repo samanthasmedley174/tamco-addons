@@ -38,7 +38,8 @@ local SERVER_PLATFORM     -- Will be set at initialization
 local PLAYER_ACCOUNT_NAME -- Will be set at initialization
 local CURRENT_MAX_CHARS   -- Will be set based on platform and user preference
 
--- Capture settings (removed selectedGuildSlot - now using individual buttons)
+-- Capture settings
+local selectedGuildSlot = 1
 
 -- URL submission state
 local urlTable = nil
@@ -1039,26 +1040,6 @@ Scan the QR code to view full update details]],
         }
         settings:AddSetting(guildStatusLabel)
         guildStatusLabels[i] = guildStatusLabel
-
-        -- Add capture button for this guild
-        local guildCaptureButton = {
-            type = LHAS.ST_BUTTON,
-            label = "Capture " .. (GetGuildName(GetGuildId(i)) or "Guild " .. i),
-            tooltip = "Start capturing new guild data for this guild (automatically determines what data to capture)",
-            buttonText = function()
-                if TSCDataHub.isProcessing then
-                    return "Processing..."
-                end
-                return "Capture"
-            end,
-            disable = function()
-                return TSCDataHub.isProcessing
-            end,
-            clickHandler = function()
-                return CheckGuildAndCollect(i)
-            end
-        }
-        settings:AddSetting(guildCaptureButton)
     end
 
     --[[
@@ -1079,7 +1060,73 @@ Scan the QR code to view full update details]],
     -- }
     -- settings:AddSetting(refreshStatus)
 
+    --[[
+        GUILD SELECTOR SECTION
+    --]]
 
+    local guildSelectorControl = {
+        type = LHAS.ST_DROPDOWN,
+        label = "Guild",
+        tooltip = "Choose the guild you want to track",
+        items = function()
+            local guilds = {}
+            local numGuilds = GetNumGuilds()
+            for i = 1, numGuilds do
+                local guildId = GetGuildId(i)
+                local guildName = GetGuildName(guildId)
+                if guildName and guildName ~= "" then
+                    table.insert(guilds, {
+                        name = guildName,
+                        data = i
+                    })
+                end
+            end
+            return guilds
+        end,
+        getFunction = function()
+            -- Return the guild name for display, not the slot number
+            if selectedGuildSlot then
+                local guildId = GetGuildId(selectedGuildSlot)
+                local guildName = GetGuildName(guildId)
+                return guildName or "No Guild Selected"
+            end
+            return "No Guild Selected"
+        end,
+        setFunction = function(combobox, value, item)
+            selectedGuildSlot = item.data -- This will be the guild slot number
+        end,
+        default = 1
+    }
+    settings:AddSetting(guildSelectorControl)
+
+
+
+    --[[
+        CAPTURE BUTTON SECTION
+    --]]
+
+    local captureButton = {
+        type = LHAS.ST_BUTTON,
+        label = "Capture Guild Data",
+        tooltip = "Start capturing new guild data for the selected guild (automatically determines what data to capture)",
+        buttonText = function()
+            if TSCDataHub.isProcessing then
+                return "Processing..."
+            end
+            return "Capture"
+        end,
+        disable = function()
+            return TSCDataHub.isProcessing
+        end,
+        clickHandler = function()
+            if selectedGuildSlot then
+                return CheckGuildAndCollect(selectedGuildSlot)
+            else
+                CHAT_ROUTER:AddSystemMessage("Please select a guild first")
+            end
+        end
+    }
+    settings:AddSetting(captureButton)
 
     --[[
         CLEAR TRACKING BUTTON
