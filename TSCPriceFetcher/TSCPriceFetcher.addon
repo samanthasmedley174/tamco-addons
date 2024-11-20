@@ -2,7 +2,7 @@
 ## Author: BesideMyself, SavageTSC
 ## Description: A price lookup tool for fetching item prices (Must also install TSCPriceDataLite)
 ## APIVersion: 101045 101046 101047 101048
-## AddOnVersion: 135
+## AddOnVersion: 134
 ## SavedVariables: TSCPriceFetcherData
 ## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000
 ##
