@@ -432,18 +432,18 @@ local function processAllEventsAsync(guildId, category, startIndex, endIndex, ca
     -- Create async task for processing all events
     local task = async:Create("ProcessAllEvents")
     TSCDataHub.currentTask = task
-
+    
     local totalEvents = endIndex - startIndex + 1
     local allSalesEvents = {}
     local totalSalesCount = 0
     local totalProcessedEvents = 0
     local eventTypeCounts = {}
-
+    
     local EVENT_BATCH_SIZE = 100
     local currentBatchStart = startIndex
-
+    
     -- CHAT_ROUTER:AddSystemMessage("[TSC] Starting to process " .. totalEvents .. " events in batches of " .. EVENT_BATCH_SIZE)
-
+    
     local function processBatch()
         if currentBatchStart > endIndex then
             -- All batches complete
@@ -453,32 +453,32 @@ local function processAllEventsAsync(guildId, category, startIndex, endIndex, ca
             end
             return
         end
-
+        
         local batchEnd = math.min(currentBatchStart + EVENT_BATCH_SIZE - 1, endIndex)
         local batchNum = math.floor((currentBatchStart - startIndex) / EVENT_BATCH_SIZE) + 1
         local totalBatches = math.ceil(totalEvents / EVENT_BATCH_SIZE)
-
+        
         -- Process this batch asynchronously
         task:Call(function()
             local batchSalesEvents = {}
             local batchSalesCount = 0
-
+            
             -- Process events in this batch
             for index = currentBatchStart, batchEnd do
                 totalProcessedEvents = totalProcessedEvents + 1
-
+                
                 -- Fetch basic event data
                 local eventData = fetchEventData(guildId, category, index)
                 if eventData then
                     -- Track event types for debugging
                     local eventType = eventData.eventType or "unknown"
                     eventTypeCounts[eventType] = (eventTypeCounts[eventType] or 0) + 1
-
+                    
                     -- Check if it's a sales event
                     if isSalesEvent(eventData) then
                         batchSalesCount = batchSalesCount + 1
                         totalSalesCount = totalSalesCount + 1
-
+                        
                         -- Get detailed sales data
                         local salesData = extractSalesDetails(eventData)
                         if salesData then
@@ -494,7 +494,7 @@ local function processAllEventsAsync(guildId, category, startIndex, endIndex, ca
             processBatch() -- Continue with next batch
         end)
     end
-
+    
     -- Start processing batches
     task:Call(function()
         processBatch()
@@ -645,19 +645,19 @@ local function encodeAllTransactionsAsync(salesEvents, referenceTimestamp, callb
         callback({})
         return
     end
-
+    
     local task = async:Create("EncodeAllTransactions")
     TSCDataHub.currentTask = task
-
+    
     local totalTransactions = #salesEvents
     local allEncodedTransactions = {}
     local totalProcessedTransactions = 0
-
+    
     local ENCODING_BATCH_SIZE = 100
     local currentBatchStart = 1
-
+    
     -- CHAT_ROUTER:AddSystemMessage("[TSC] Starting to encode " .. totalTransactions .. " transactions in batches of " .. ENCODING_BATCH_SIZE)
-
+    
     local function encodeBatch()
         if currentBatchStart > totalTransactions then
             -- All batches complete
@@ -667,15 +667,15 @@ local function encodeAllTransactionsAsync(salesEvents, referenceTimestamp, callb
             end
             return
         end
-
+        
         local batchEnd = math.min(currentBatchStart + ENCODING_BATCH_SIZE - 1, totalTransactions)
         local batchNum = math.floor((currentBatchStart - 1) / ENCODING_BATCH_SIZE) + 1
         local totalBatches = math.ceil(totalTransactions / ENCODING_BATCH_SIZE)
-
+        
         -- Encode this batch asynchronously
         task:Call(function()
             local batchEncodedTransactions = {}
-
+            
             -- Encode transactions in this batch
             for i = currentBatchStart, batchEnd do
                 local transaction = salesEvents[i]
@@ -694,7 +694,7 @@ local function encodeAllTransactionsAsync(salesEvents, referenceTimestamp, callb
             encodeBatch() -- Continue with next batch
         end)
     end
-
+    
     -- Start encoding batches
     task:Call(function()
         encodeBatch()
@@ -761,7 +761,7 @@ local function getGuildData(guildSlot)
         startTime = sevenDaysAgo
         CHAT_ROUTER:AddSystemMessage("First time capturing this guild - getting up to 7 days of data")
     end
-
+    
     -- CHAT_ROUTER:AddSystemMessage("[TSC] Time range: " .. startTime .. " to " .. currentTime .. " (duration: " .. string.format("%.1f", (currentTime - startTime) / 86400) .. " days)")
 
     return {
@@ -782,7 +782,7 @@ local function CheckGuildAndCollect(guildSlot)
         CHAT_ROUTER:AddSystemMessage("[TSC] Processing already in progress. Please wait or cancel current operation.")
         return
     end
-
+    
     -- Step 1: Validate guild slot
     local isValid, errorMsg = validateGuildSlot(guildSlot)
     if not isValid then
@@ -806,7 +806,7 @@ local function CheckGuildAndCollect(guildSlot)
                 -- Use collection start time as universal reference for delta compression
                 local referenceTimestamp = guildData.startTime
 
-                -- Step 1: Encode all transactions asynchronously
+                -- Step 1: Encode all transactions asynchronously  
                 encodeAllTransactionsAsync(salesEvents, referenceTimestamp, function(encodedTransactions)
                     if #encodedTransactions > 0 then
                         -- Step 2: Create character-aware batches using platform and method specific limits
@@ -898,11 +898,12 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v108: Testing Release
+        tooltip = [[v100: Initial release
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
+            TSCDataHub.showSettingsQRCode("https://tamrielsavings.com/updates", "What's New")
         end,
     }
     settings:AddSetting(whatsNewButton)
@@ -939,29 +940,6 @@ Scan the QR code to view full update details]],
         end,
     }
     settings:AddSetting(donateButton)
-
-    local infoButton = {
-        type = LHAS.ST_BUTTON,
-        label = "Info",
-        tooltip = "Data is captured automatically based on your submission history:\n" ..
-            "• First time: Up to 7 days of data\n" ..
-            "• Returning users: Only new data since last submission\n" ..
-            "• No duplicate data sent to server",
-        buttonText = "Info",
-        clickHandler = function(control, button)
-        end,
-    }
-    settings:AddSetting(infoButton)
-
-    local howToButton = {
-        type = LHAS.ST_BUTTON,
-        label = "How To",
-        tooltip = "placeholder",
-        buttonText = "How To",
-        clickHandler = function(control, button)
-        end,
-    }
-    settings:AddSetting(howToButton)
 
     --[[
         TRADING SETTINGS SECTION
@@ -1008,25 +986,25 @@ Scan the QR code to view full update details]],
     }
     settings:AddSetting(automaticCaptureInfo)
 
-    -- Create individual sections for each guild
+    --[[
+        GUILD STATUS SECTION
+    --]]
+    local guildStatusSection = {
+        type = LHAS.ST_SECTION,
+        label = "Guild Status",
+    }
+    settings:AddSetting(guildStatusSection)
+
+    -- Create simple status labels for each guild the player is in
+    local guildStatusLabels = {}
     local numGuilds = GetNumGuilds()
 
     for i = 1, numGuilds do
-        local guildId = GetGuildId(i)
-        local guildName = GetGuildName(guildId) or "Guild " .. i
-        
-        -- Create section for this guild
-        local guildSection = {
-            type = LHAS.ST_SECTION,
-            label = guildName,
-        }
-        settings:AddSetting(guildSection)
-
-        -- Guild status label (without guild name since it's in the section)
         local guildStatusLabel = {
             type = LHAS.ST_LABEL,
             label = function()
                 local guildId = GetGuildId(i)
+                local guildName = GetGuildName(guildId)
 
                 -- Check if guild has new data to submit
                 local submissionTracking = getSubmissionTracking(guildId)
@@ -1037,7 +1015,8 @@ Scan the QR code to view full update details]],
                     -- Check if there's new data since last submission
                     local numEvents = GetNumGuildHistoryEvents(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
                     if numEvents > 0 then
-                        local _, newestTime = GetGuildHistoryEventBasicInfo(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, 1)
+                        local _, newestTime = GetGuildHistoryEventBasicInfo(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER,
+                            1)
                         if newestTime and newestTime > submissionTracking.lastSubmissionTime then
                             statusText = "Ready to upload"
                             color = "|c00FF00" -- Green
@@ -1055,16 +1034,17 @@ Scan the QR code to view full update details]],
                     color = "|c00FF00" -- Green
                 end
 
-                return color .. statusText .. "|r"
+                return color .. guildName .. " - " .. statusText .. "|r"
             end,
         }
         settings:AddSetting(guildStatusLabel)
+        guildStatusLabels[i] = guildStatusLabel
 
-        -- Capture button for this guild (with guild name in button text)
+        -- Add capture button for this guild
         local guildCaptureButton = {
             type = LHAS.ST_BUTTON,
-            label = "Capture " .. guildName,
-            tooltip = "Start capturing new sales data for " .. guildName .. " (automatically determines what data to capture)",
+            label = "Capture " .. (GetGuildName(GetGuildId(i)) or "Guild " .. i),
+            tooltip = "Start capturing new guild data for this guild (automatically determines what data to capture)",
             buttonText = function()
                 if TSCDataHub.isProcessing then
                     return "Processing..."
@@ -1082,6 +1062,45 @@ Scan the QR code to view full update details]],
     end
 
     --[[
+        REFRESH STATUS BUTTON
+    --]]
+
+    -- local refreshStatus = {
+    --     type = LHAS.ST_BUTTON,
+    --     label = "Refresh Status",
+    --     tooltip = "Update the guild status display",
+    --     buttonText = "Refresh",
+    --     clickHandler = function()
+    --         -- Force refresh of all status labels
+    --         if TSCDataHub.settings and TSCDataHub.settings.UpdateControls then
+    --             TSCDataHub.settings:UpdateControls()
+    --         end
+    --     end,
+    -- }
+    -- settings:AddSetting(refreshStatus)
+
+
+
+    --[[
+        CLEAR TRACKING BUTTON
+    --]]
+
+    local clearTrackingButton = {
+        type = LHAS.ST_BUTTON,
+        label = "Clear Submission Tracking",
+        tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to upload'",
+        buttonText = "Clear Tracking",
+        clickHandler = function()
+            clearAllSubmissionTracking()
+            -- Refresh the status display after clearing
+            if TSCDataHub.settings and TSCDataHub.settings.UpdateControls then
+                TSCDataHub.settings:UpdateControls()
+            end
+        end,
+    }
+    settings:AddSetting(clearTrackingButton)
+
+    --[[
         URL SUBMISSION SECTION
     --]]
     local urlSubmissionSection = {
@@ -1089,6 +1108,25 @@ Scan the QR code to view full update details]],
         label = "URL Submission",
     }
     settings:AddSetting(urlSubmissionSection)
+
+    -- Cancel button (only visible during processing)
+    -- local cancelButton = {
+    --     type = LHAS.ST_BUTTON,
+    --     label = "Cancel Processing",
+    --     tooltip = "Cancel the current data processing operation",
+    --     buttonText = "Cancel",
+    --     disable = function()
+    --         return not isProcessing
+    --     end,
+    --     clickHandler = function()
+    --         if TSCDataHub.currentTask then
+    --             TSCDataHub.currentTask:Cancel()
+    --             CHAT_ROUTER:AddSystemMessage("[TSC] Processing cancelled")
+    --         end
+    --         TSCDataHub.setProcessing(false)
+    --     end,
+    -- }
+    -- settings:AddSetting(cancelButton)
 
     local submitButton = {
         type = LHAS.ST_BUTTON,
@@ -1143,6 +1181,7 @@ Scan the QR code to view full update details]],
         end,
     }
     settings:AddSetting(clearTrackingButton)
+
 end
 
 -- ============================================================================
@@ -1177,7 +1216,7 @@ local function setServerPlatform()
         SERVER_PLATFORM = 0 -- NA Xbox
     elseif worldName == "XB1live-eu" then
         SERVER_PLATFORM = 3 -- EU Xbox
-        -- PC servers use NA/EU in the world name (case-insensitive)
+    -- PC servers use NA/EU in the world name (case-insensitive)
     elseif string.find(string.upper(worldName), "NA") then
         if platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
             SERVER_PLATFORM = 1 -- NA PlayStation
