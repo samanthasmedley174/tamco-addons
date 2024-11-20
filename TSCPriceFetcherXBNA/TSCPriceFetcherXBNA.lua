@@ -1,7 +1,7 @@
 -- TSCPriceFetcherXBNA.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcherXBNA",
-    version = 147
+    version = 146
 }
 
 -- Local references for performance
@@ -432,7 +432,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v147: Updated with sales data from week starting Dec. 14
+        tooltip = [[v145: Corrected price bug on some items
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
