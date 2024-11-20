@@ -268,7 +268,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 		self.canSelect = params.canSelect
 	end,
@@ -283,7 +282,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 	end,
 	[LibHarvensAddonSettings.ST_BUTTON] = function(self, params)
@@ -291,7 +289,6 @@ local setupControlFunctions = {
 		self.labelText = params.label
 		self.tooltipText = params.tooltip
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 		self.buttonText = params.buttonText
 	end,
@@ -303,7 +300,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 	end,
 	[LibHarvensAddonSettings.ST_DROPDOWN] = function(self, params)
@@ -313,7 +309,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 	end,
 	[LibHarvensAddonSettings.ST_LABEL] = function(self, params)
@@ -331,7 +326,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 	end,
 	[LibHarvensAddonSettings.ST_ICONPICKER] = function(self, params)
@@ -341,7 +335,6 @@ local setupControlFunctions = {
 		self.setFunction = params.setFunction
 		self.getFunction = params.getFunction
 		self.default = params.default
-		self.ignoreDefault = params.ignoreDefault
 		self.disable = params.disable
 	end
 }
@@ -422,15 +415,15 @@ end
 function LibHarvensAddonSettings.AddonSettings:RefreshSelection()
 	local list = LibHarvensAddonSettings.list
 	if #self.settings > 0 then
-		local selectedIndex = list:FindFirstIndexByEval(
-			function(data)
-				return data == self.lastSelectedRow
-			end
-		) or list:CalculateFirstSelectableIndex()
-
-		list:EnableAnimation(false)
-		list:SetSelectedIndex(selectedIndex)
-		list:EnableAnimation(true)
+		list:SetSelectedIndexWithoutAnimation(
+			list:FindFirstIndexByEval(
+				function(data)
+					return data == self.lastSelectedRow
+				end
+			) or list:CalculateFirstSelectableIndex(),
+			true,
+			false
+		)
 	end
 end
 
