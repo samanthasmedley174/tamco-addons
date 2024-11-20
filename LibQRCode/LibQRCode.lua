@@ -58,8 +58,6 @@ local function DrawQRCodeWithCompositeTexture(control, qr_table)
 		composite:ClearAllSurfaces()
 	end
 	composite:SetParent(control)
-	composite:SetDrawTier(control:GetDrawTier())
-	composite:SetDrawLayer(DL_OVERLAY)
 	--d("Composite has " .. composite:GetNumSurfaces() .. " surfaces")
 	
 	local rowcount = #qr_table
