@@ -1,7 +1,7 @@
 -- TSCPriceFetcher.lua - Consolidated single file
 local TSC = {
     name = "TSCPriceFetcher",
-    version = 123
+    version = 122
 }
 
 -- Local references for performance
@@ -412,7 +412,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v123: Updated with new sales data for week starting 2025-07-22
+        tooltip = [[v122: Minor feature release with code changes to support internal Data API
 
 Scan the QR code to view full update details]],
         buttonText = "View Update Info",
