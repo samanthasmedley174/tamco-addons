@@ -22,29 +22,10 @@ local PROD_URL = "https://qz1mkettpa.execute-api.us-east-2.amazonaws.com/prod/da
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
 -- Default values for flags optimization
-local DEFAULT_QUALITY = 1  -- Fine quality (most common)
-local DEFAULT_PERSONAL = 0  -- Not currently used, kept for future personal sales tracking
-local DEFAULT_QUANTITY = 1  -- Single item (most common)
-
--- Flag Encoding Rules (for backend parsing):
--- Flags are variable-length for compression optimization
--- Format: quality (1 digit) + optional quantity (3 digits, padded)
--- 
--- Possible flag lengths and meanings:
---   0 chars: quality=1 (Fine), quantity=1 (defaults - no flags needed)
---   1 char:  quality=0,2,3,4 with quantity=1
---            Examples: "0"=Normal, "2"=Superior, "3"=Epic, "4"=Legendary
---   4 chars: any quality (0-4) with quantity != 1
---            Format: quality (1 digit) + quantity (3 digits, zero-padded)
---            Examples: "0015"=Normal qty15, "1015"=Fine qty15, "2015"=Superior qty15
---
--- Quality values: 0=Normal, 1=Fine, 2=Superior, 3=Epic, 4=Legendary
--- Quantity: 1-999 (1 is default, omitted when quality is also default)
---
--- Backend parsing logic:
---   if flags.length == 0: quality=1, quantity=1
---   if flags.length == 1: quality=flags[0], quantity=1
---   if flags.length == 4: quality=flags[0], quantity=flags[1-3] (parse as int)
+local DEFAULT_TRAIT = 0
+local DEFAULT_QUALITY = 1
+local DEFAULT_PERSONAL = 0
+local DEFAULT_QUANTITY = 1
 
 local savedVars           -- Will be set after initialization
 local SERVER_PLATFORM     -- Will be set at initialization
@@ -579,22 +560,17 @@ end
 -- DATA ENCODING FUNCTIONS
 -- ============================================================================
 
-local function encodeFlags(quality, quantity)
-    -- Variable-length flag encoding for compression
-    -- See documentation above for flag format rules
-    
+local function encodeFlags(trait, quality, isPersonalSale, quantity)
     -- Check if any values are non-default
-    -- Trait is baked into itemId, so not included in flags
-    if quality == DEFAULT_QUALITY and quantity == DEFAULT_QUANTITY then
-        return nil -- No flags needed (both defaults)
+    if trait == DEFAULT_TRAIT and quality == DEFAULT_QUALITY and (isPersonalSale and 1 or 0) == DEFAULT_PERSONAL and quantity == DEFAULT_QUANTITY then
+        return nil -- No flags needed
     end
 
-    -- Build base flags: quality (1 digit, 0-4)
-    -- Quality 0 (Normal) is valid and must be preserved
-    local flags = string.format("%d", quality)
+    -- Build base flags: quality + personal + trait (padded to 2 digits)
+    local personal = isPersonalSale and 1 or 0
+    local flags = string.format("%d%d%02d", quality, personal, trait)
 
-    -- Add quantity if it's not the default (3 digits, zero-padded)
-    -- This ensures quantity is always 3 digits when present (001-999)
+    -- Add quantity if it's not the default
     if quantity ~= DEFAULT_QUANTITY then
         flags = flags .. string.format("%03d", quantity)
     end
@@ -605,17 +581,19 @@ end
 local function encodeTransaction(transaction, minTimestamp)
     local deltaTime = transaction.timestamp - minTimestamp
 
-    -- Personal sales tracking is disabled for now (may be added in the future)
     -- Check if this is a personal sale (if tracking is enabled)
     -- PLAYER_ACCOUNT_NAME is already normalized at init, so just normalize the seller name
+
+
+    -- This is how we will allow users to track their personal sales
     -- local normalizedSeller = normalizePlayerName(transaction.seller)
     -- local isPersonalSale = savedVars.trackPersonalSales and normalizedSeller == PLAYER_ACCOUNT_NAME
-    -- local isPersonalSale = false
+
+    -- This will disable personal sales tracking for now
+    local isPersonalSale = false
 
     -- Encode flags if any are non-default
-    -- Trait is baked into itemId, so not passed to encodeFlags
-    -- Personal sales tracking disabled - not used in encoding
-    local flags = encodeFlags(transaction.quality, transaction.quantity or 1)
+    local flags = encodeFlags(transaction.trait, transaction.quality, isPersonalSale, transaction.quantity or 1)
 
     local encodedTransaction
     if flags then
@@ -793,7 +771,7 @@ local function getGuildData(guildSlot)
     local guildId = GetGuildId(guildSlot)
     local guildName = GetGuildName(guildId) or "gn-1"
     local currentTime = GetTimeStamp()
-    local eightDaysAgo = currentTime - (8 * 24 * 60 * 60) - 1
+    local sevenDaysAgo = currentTime - (7 * 24 * 60 * 60)
 
     -- Check submission tracking to determine start time
     local submissionTracking = getSubmissionTracking(guildId)
@@ -803,19 +781,19 @@ local function getGuildData(guildSlot)
         -- Returning user: only get data newer than last submission
         startTime = submissionTracking.lastSubmissionTime + 1
 
-        -- But enforce 8-day maximum lookback for very old submissions
-        if startTime < eightDaysAgo then
-            startTime = eightDaysAgo
-            CHAT_ROUTER:AddSystemMessage("Last submission was >8 days ago, capturing last 8 days")
+        -- But enforce 7-day maximum lookback for very old submissions
+        if startTime < sevenDaysAgo then
+            startTime = sevenDaysAgo
+            CHAT_ROUTER:AddSystemMessage("Last submission was >7 days ago, capturing last 7 days")
         else
             local daysSinceSubmission = math.floor((currentTime - submissionTracking.lastSubmissionTime) / 86400)
             CHAT_ROUTER:AddSystemMessage("Capturing new data since last submission (" ..
                 daysSinceSubmission .. " days ago)")
         end
     else
-        -- New user: get up to 8 days
-        startTime = eightDaysAgo
-        CHAT_ROUTER:AddSystemMessage("First time capturing this guild - getting up to 8 days of data")
+        -- New user: get up to 7 days
+        startTime = sevenDaysAgo
+        CHAT_ROUTER:AddSystemMessage("First time capturing this guild - getting up to 7 days of data")
     end
 
     -- CHAT_ROUTER:AddSystemMessage("[TSC] Time range: " .. startTime .. " to " .. currentTime .. " (duration: " .. string.format("%.1f", (currentTime - startTime) / 86400) .. " days)")
@@ -860,7 +838,7 @@ local function CheckGuildAndCollect(guildSlot)
         urlTable = {}
     end
 
-    -- Wait a bit for guild history to be ready
+    -- Wait a bit for guild history to be ready (like LibHistoire does)
     zo_callLater(function()
         -- Fetch ALL sales data for the time range using async processing
         fetchGuildSalesAsync(guildData.guildId, guildData.startTime, function(salesEvents)
@@ -965,7 +943,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v118: Testing Release]],
+        tooltip = [[v116: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1009,7 +987,7 @@ local function setupSettingsMenu()
         type = LHAS.ST_BUTTON,
         label = "Info",
         tooltip = "Data is captured automatically based on your submission history:\n" ..
-            "• First time: Up to 8 days of data\n" ..
+            "• First time: Up to 7 days of data\n" ..
             "• Returning users: Only new data since last submission\n" ..
             "• No duplicate data sent to server",
         buttonText = "Info",
@@ -1254,22 +1232,39 @@ local function initializeSavedVars()
 end
 
 local function setServerPlatform()
-    local SERVER_PLATFORM_MAPPING = {
-        ["XB1live"] = 0, -- XBNA
-        ["PS4live"] = 1, -- PSNA
-        ["NA Megaserver"] = 2, -- PCNA
-        ["XB1live-eu"] = 3, -- XBEU
-        ["PS4live-eu"] = 4, -- PSEU
-        ["EU Megaserver"] = 5, -- PCEU
-        ["PTS"] = 6 -- PTS
-    }
-    
     local worldName = GetWorldName()
-    SERVER_PLATFORM = SERVER_PLATFORM_MAPPING[worldName]
-    
-    if not SERVER_PLATFORM then
-        CHAT_ROUTER:AddSystemMessage("[TSC] Unknown world name: " .. worldName .. " - defaulting to NA PC")
-        SERVER_PLATFORM = 2 -- Default to NA PC
+    local platform = GetUIPlatform()
+
+    -- Xbox servers have specific world names
+    if worldName == "XB1live" then
+        SERVER_PLATFORM = 0 -- NA Xbox
+    elseif worldName == "XB1live-eu" then
+        SERVER_PLATFORM = 3 -- EU Xbox
+        -- PC servers use NA/EU in the world name (case-insensitive)
+    elseif string.find(string.upper(worldName), "NA") then
+        if platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+            SERVER_PLATFORM = 1 -- NA PlayStation
+        else
+            SERVER_PLATFORM = 2 -- NA PC
+        end
+    elseif string.find(string.upper(worldName), "EU") then
+        if platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+            SERVER_PLATFORM = 4 -- EU PlayStation
+        else
+            SERVER_PLATFORM = 5 -- EU PC
+        end
+    elseif string.find(string.upper(worldName), "PTS") then
+        SERVER_PLATFORM = 6 -- PTS PC (only platform that has PTS)
+    else
+        -- Unknown world name - fallback to platform detection
+        if platform == UI_PLATFORM_XBOX then
+            SERVER_PLATFORM = 0 -- Default to NA Xbox
+        elseif platform == UI_PLATFORM_PS4 or platform == UI_PLATFORM_PS5 then
+            SERVER_PLATFORM = 1 -- Default to NA PlayStation
+        else
+            SERVER_PLATFORM = 2 -- Default to NA PC
+        end
+        CHAT_ROUTER:AddSystemMessage("[TSC] Unknown world name: " .. worldName .. " - using platform fallback")
     end
 end
 
@@ -1323,8 +1318,15 @@ local function initialize()
     end
 
     SLASH_COMMANDS["/tsccheck"] = function()
-        CHAT_ROUTER:AddSystemMessage("[TSC] Cache check: This addon reads from the manually-scrolled guild history cache.")
-        CHAT_ROUTER:AddSystemMessage("[TSC] Make sure you've manually scrolled through guild history in the UI to warm the cache.")
+        if LibHistoire then
+            if LibHistoire:IsReady() then
+                CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Ready")
+            else
+                CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Available but not ready yet")
+            end
+        else
+            CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Not found - cache warming disabled")
+        end
     end
 
     SLASH_COMMANDS["/tscguilds"] = function()
@@ -1355,11 +1357,19 @@ local function initialize()
 
     SLASH_COMMANDS["/tscdebug"] = function()
         CHAT_ROUTER:AddSystemMessage("[TSC] Debug Info:")
-        CHAT_ROUTER:AddSystemMessage("  GetTimeStamp(): " .. GetTimeStamp())
-        CHAT_ROUTER:AddSystemMessage("  Processing: " .. tostring(TSCDataHub.isProcessing))
-        if TSCDataHub.processingGuildSlot then
-            CHAT_ROUTER:AddSystemMessage("  Processing guild slot: " .. tostring(TSCDataHub.processingGuildSlot))
+        if LibHistoire then
+            CHAT_ROUTER:AddSystemMessage("  LibHistoire ready: " .. tostring(LibHistoire:IsReady()))
+            if LibHistoire.internal and LibHistoire.internal.historyCache then
+                CHAT_ROUTER:AddSystemMessage("  History cache exists: true")
+                CHAT_ROUTER:AddSystemMessage("  Is processing: " ..
+                    tostring(LibHistoire.internal.historyCache:IsProcessing()))
+            else
+                CHAT_ROUTER:AddSystemMessage("  History cache exists: false")
+            end
+        else
+            CHAT_ROUTER:AddSystemMessage("  LibHistoire: not found")
         end
+        CHAT_ROUTER:AddSystemMessage("  GetTimeStamp(): " .. GetTimeStamp())
     end
 
     isInitialized = true
