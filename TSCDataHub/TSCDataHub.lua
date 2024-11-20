@@ -1109,6 +1109,18 @@ Scan the QR code to view full update details]],
     }
     settings:AddSetting(urlSubmissionSection)
 
+    -- Progress bar display
+    local progressDisplay = {
+        type = LHAS.ST_LABEL,
+        label = function()
+            if not TSCDataHub.isProcessing or TSCDataHub.progressText == "" then
+                return ""
+            end
+            return TSCDataHub.progressText
+        end,
+    }
+    settings:AddSetting(progressDisplay)
+
     -- Cancel button (only visible during processing)
     -- local cancelButton = {
     --     type = LHAS.ST_BUTTON,
@@ -1155,33 +1167,9 @@ Scan the QR code to view full update details]],
         end,
     }
     settings:AddSetting(submitButton)
+
     -- Store references for updates (store the actual control objects)
     TSCDataHub.submitButton = submitButton
-
-    --[[
-        ADVANCED SECTION
-    --]]
-    local advancedSection = {
-        type = LHAS.ST_SECTION,
-        label = "Advanced",
-    }
-    settings:AddSetting(advancedSection)
-
-    local clearTrackingButton = {
-        type = LHAS.ST_BUTTON,
-        label = "Clear Submission Tracking",
-        tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to upload'",
-        buttonText = "Clear Tracking",
-        clickHandler = function()
-            clearAllSubmissionTracking()
-            -- Refresh the status display after clearing
-            if TSCDataHub.settings and TSCDataHub.settings.UpdateControls then
-                TSCDataHub.settings:UpdateControls()
-            end
-        end,
-    }
-    settings:AddSetting(clearTrackingButton)
-
 end
 
 -- ============================================================================
