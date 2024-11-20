@@ -49,7 +49,7 @@ local totalUrls = nil
 TSCDataHub.currentTask = nil
 TSCDataHub.progressText = ""
 TSCDataHub.isProcessing = false
-TSCDataHub.processingGuildSlot = nil      -- Track which guild is being processed
+TSCDataHub.processingGuildSlot = nil -- Track which guild is being processed
 TSCDataHub.capturedGuildsThisSession = {} -- Track guilds captured in this session
 
 local OVERRIDE_AND_USE_CONSOLE_LIMITS = false
@@ -213,15 +213,15 @@ local function clearAllSubmissionTracking()
     if savedVars.guildSubmissionTracking then
         savedVars.guildSubmissionTracking = {}
     end
-
+    
     -- Clear the URL table to remove any pending submissions
     urlTable = nil
     currentUrlIndex = 1
     totalUrls = 0
-
+    
     -- Reset session captures so all guilds can be captured again
     TSCDataHub.capturedGuildsThisSession = {}
-
+    
     CHAT_ROUTER:AddSystemMessage("[TSC] Fresh start: Cleared all tracking, URLs, and session data")
 end
 
@@ -265,7 +265,7 @@ function TSCDataHub.submitNextURL()
                 CHAT_ROUTER:AddSystemMessage("All data submitted successfully - submission tracking updated")
                 urlTable.pendingSubmissionTracking = nil
             end
-
+            
             -- Reset session captures since all data has been submitted
             TSCDataHub.resetSessionCaptures()
         end
@@ -806,7 +806,7 @@ local function CheckGuildAndCollect(guildSlot)
         CHAT_ROUTER:AddSystemMessage("[TSC] Processing already in progress. Please wait or cancel current operation.")
         return
     end
-
+    
     -- Set processing state for this guild
     TSCDataHub.setProcessing(true, guildSlot)
 
@@ -873,7 +873,7 @@ local function CheckGuildAndCollect(guildSlot)
 
                         -- Mark this guild as captured this session
                         TSCDataHub.capturedGuildsThisSession[guildData.guildId] = true
-
+                        
                         TSCDataHub.setProcessing(false)
                         -- CHAT_ROUTER:AddSystemMessage("[TSC] Processing complete! Ready to submit " .. totalUrls .. " URLs")
                         TSCDataHub.updateSubmitButton()
@@ -987,8 +987,7 @@ local function setupSettingsMenu()
     local howToButton = {
         type = LHAS.ST_BUTTON,
         label = "How To",
-        tooltip =
-            "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
+        tooltip = "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
             "Do this for each guild you want to capture data for.\n\n" ..
             "To submit the data, click the 'Submit URL ...' button below.\n\n" ..
             "Repeat 'Submit URL' until all URLs are submitted.",
@@ -1023,8 +1022,14 @@ local function setupSettingsMenu()
     settings:AddSetting(trackPersonalSales)
 
     --[[
-        GUILD CAPTURE SETTINGS SECTION
+        TRADING SETTINGS SECTION
     --]]
+    local tradingSettingsSection = {
+        type = LHAS.ST_SECTION,
+        label = "Sales Tracking",
+    }
+    settings:AddSetting(tradingSettingsSection)
+
     -- Create individual sections for each guild
     local numGuilds = GetNumGuilds()
 
@@ -1032,7 +1037,7 @@ local function setupSettingsMenu()
         local guildSlot = i -- Capture the guild slot value
         local guildId = GetGuildId(guildSlot)
         local guildName = GetGuildName(guildId) or "Guild " .. guildSlot
-
+        
         -- Create section for this guild
         local guildSection = {
             type = LHAS.ST_SECTION,
@@ -1065,8 +1070,7 @@ local function setupSettingsMenu()
                     -- Check if there's new data since last submission
                     local numEvents = GetNumGuildHistoryEvents(currentGuildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
                     if numEvents > 0 then
-                        local _, newestTime = GetGuildHistoryEventBasicInfo(currentGuildId,
-                            GUILD_HISTORY_EVENT_CATEGORY_TRADER, 1)
+                        local _, newestTime = GetGuildHistoryEventBasicInfo(currentGuildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, 1)
                         if newestTime and newestTime > submissionTracking.lastSubmissionTime then
                             statusText = "Ready to capture"
                             color = "|c00FF00" -- Green
@@ -1093,8 +1097,7 @@ local function setupSettingsMenu()
         local guildCaptureButton = {
             type = LHAS.ST_BUTTON,
             label = "Capture " .. guildName,
-            tooltip = "Start capturing new sales data for " ..
-                guildName .. " (automatically determines what data to capture)",
+            tooltip = "Start capturing new sales data for " .. guildName .. " (automatically determines what data to capture)",
             buttonText = function()
                 local currentGuildId = GetGuildId(guildSlot)
                 if TSCDataHub.isProcessing and TSCDataHub.processingGuildSlot == guildSlot then
