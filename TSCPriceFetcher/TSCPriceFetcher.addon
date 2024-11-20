@@ -1,11 +1,11 @@
 ## Title: TSCPriceFetcher
-## Author: BesideMyself, SavageTSC
-## Description: A price lookup tool for fetching item prices (Must also install TSCPriceDataLite)
+## Author: @besidemyself
+## Description: A price lookup tool for fetching item prices
 ## APIVersion: 101045 101046 101047
-## Version: 1.0.4
-## AddOnVersion: 1.0.4
+## Version: 1.0.3
+## AddOnVersion: 1.0.3
 ## SavedVariables: TSCPriceFetcherData
-## OptionalDependsOn: TSCPriceDataLite
+## OptionalDependsOn: TSCPriceData TSCPriceDataLite
 ##
 ## This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
 ## The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
