@@ -306,10 +306,10 @@ function LibHarvensAddonSettings:Initialize()
 	if self.initialized then
 		return
 	end
-
-	self:CreateAddonSettingsPanel()
-	self:CreateControlPools()
-	self:CreateAddonList()
-
+	if #LibHarvensAddonSettings.addons > 0 then
+		self:CreateAddonSettingsPanel()
+		self:CreateControlPools()
+		self:CreateAddonList()
+	end
 	self.initialized = true
 end
