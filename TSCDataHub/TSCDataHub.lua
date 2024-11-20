@@ -282,16 +282,6 @@ end
 -- UTILITY FUNCTIONS
 -- ============================================================================
 
-local function normalizePlayerName(name)
-    if not name then return "" end
-    -- Remove leading @, leading/trailing spaces, convert to lowercase for comparison
-    name = string.gsub(name, "^@", "")
-    name = string.gsub(name, "^ ", "")
-    name = string.gsub(name, " $", "")
-    name = string.lower(name)
-    return name
-end
-
 local function isGuildHistoryReady(guildId, category)
     local numEvents = GetNumGuildHistoryEvents(guildId, category)
     return numEvents > 0
@@ -582,15 +572,7 @@ local function encodeTransaction(transaction, minTimestamp)
     local deltaTime = transaction.timestamp - minTimestamp
 
     -- Check if this is a personal sale (if tracking is enabled)
-    -- PLAYER_ACCOUNT_NAME is already normalized at init, so just normalize the seller name
-
-
-    -- This is how we will allow users to track their personal sales
-    -- local normalizedSeller = normalizePlayerName(transaction.seller)
-    -- local isPersonalSale = savedVars.trackPersonalSales and normalizedSeller == PLAYER_ACCOUNT_NAME
-
-    -- This will disable personal sales tracking for now
-    local isPersonalSale = false
+    local isPersonalSale = savedVars.trackPersonalSales and transaction.seller == PLAYER_ACCOUNT_NAME
 
     -- Encode flags if any are non-default
     local flags = encodeFlags(transaction.trait, transaction.quality, isPersonalSale, transaction.quantity or 1)
@@ -943,7 +925,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v116: Testing Release]],
+        tooltip = [[v114: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1019,29 +1001,20 @@ local function setupSettingsMenu()
     }
     settings:AddSetting(tradingSettingsSection)
 
-    --[[
-        We will be keeping this disabled for now as we are not ready to track personal sales yet.
-        We need a way to be GDPR compliant:
-        - We need to be able to opt-in to track personal sales
-        - We need to be able to opt-out of tracking personal sales
-        - We need to be able to delete all personal sales data
-        - We need to be able to deliver all personal sales data
-    --]]
-
-    -- local trackPersonalSales = {
-    --     type = LHAS.ST_CHECKBOX,
-    --     label = "Track Personal Sales",
-    --     tooltip =
-    --     "Setting this ON will track allow you to track your personal sales on the website.  Setting this OFF will not track your personal sales.",
-    --     default = false,
-    --     setFunction = function(state)
-    --         savedVars.trackPersonalSales = state
-    --     end,
-    --     getFunction = function()
-    --         return savedVars.trackPersonalSales
-    --     end,
-    -- }
-    -- settings:AddSetting(trackPersonalSales)
+    local trackPersonalSales = {
+        type = LHAS.ST_CHECKBOX,
+        label = "Track Personal Sales",
+        tooltip =
+        "Setting this ON will track allow you to track your personal sales on the website.  Setting this OFF will not track your personal sales.",
+        default = false,
+        setFunction = function(state)
+            savedVars.trackPersonalSales = state
+        end,
+        getFunction = function()
+            return savedVars.trackPersonalSales
+        end,
+    }
+    settings:AddSetting(trackPersonalSales)
 
     --[[
         GUILD CAPTURE SETTINGS SECTION
@@ -1268,6 +1241,28 @@ local function setServerPlatform()
     end
 end
 
+local function getServerPlatform()
+    local platformNames = {
+        [0] = "Xbox NA",
+        [1] = "PlayStation NA",
+        [2] = "PC NA",
+        [3] = "Xbox EU",
+        [4] = "PlayStation EU",
+        [5] = "PC EU",
+        [6] = "PTS PC",
+        [9] = "Unknown"
+    }
+
+    -- local platformName = platformNames[SERVER_PLATFORM] or "Unknown"
+    -- CHAT_ROUTER:AddSystemMessage("You are playing on: " .. platformName)
+    -- return platformName
+    local worldName = GetWorldName()
+    local platform = GetUIPlatform()
+    CHAT_ROUTER:AddSystemMessage("GetWorldName: " .. worldName)
+    CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platform)
+    CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platformNames[platform])
+end
+
 local function initialize()
     if isInitialized then
         return
@@ -1276,38 +1271,38 @@ local function initialize()
     -- Initialize server platform once
     setServerPlatform()
     setupSettingsMenu()
-    PLAYER_ACCOUNT_NAME = normalizePlayerName(GetDisplayName())
+    PLAYER_ACCOUNT_NAME = string.gsub(GetDisplayName(), "^@", " ")
 
-    -- SLASH_COMMANDS["/tscdhg1"] = function()
-    --     CheckGuildAndCollect(1)
-    -- end
+    SLASH_COMMANDS["/tscdhg1"] = function()
+        CheckGuildAndCollect(1)
+    end
 
-    -- SLASH_COMMANDS["/tscdhg2"] = function()
-    --     CheckGuildAndCollect(2)
-    -- end
+    SLASH_COMMANDS["/tscdhg2"] = function()
+        CheckGuildAndCollect(2)
+    end
 
-    -- SLASH_COMMANDS["/tscdhg3"] = function()
-    --     CheckGuildAndCollect(3)
-    -- end
+    SLASH_COMMANDS["/tscdhg3"] = function()
+        CheckGuildAndCollect(3)
+    end
 
-    -- SLASH_COMMANDS["/tscdhg4"] = function()
-    --     CheckGuildAndCollect(4)
-    -- end
+    SLASH_COMMANDS["/tscdhg4"] = function()
+        CheckGuildAndCollect(4)
+    end
 
-    -- SLASH_COMMANDS["/tscdhg5"] = function()
-    --     CheckGuildAndCollect(5)
-    -- end
+    SLASH_COMMANDS["/tscdhg5"] = function()
+        CheckGuildAndCollect(5)
+    end
 
-    -- SLASH_COMMANDS["/tester"] = function()
-    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PC: " .. UI_PLATFORM_PC)
-    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS4: " .. UI_PLATFORM_PS4)
-    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
-    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
-    --     CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
-    -- end
+    SLASH_COMMANDS["/tester"] = function()
+        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PC: " .. UI_PLATFORM_PC)
+        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS4: " .. UI_PLATFORM_PS4)
+        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
+        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
+        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
+    end
 
     -- Cache Management Commands
-    SLASH_COMMANDS["/tscstatus"] = function()
+    SLASH_COMMANDS["/status"] = function()
         CHAT_ROUTER:AddSystemMessage("[TSC] Guild Cache Status:")
         for i = 1, GetNumGuilds() do
             local guildId = GetGuildId(i)
@@ -1317,7 +1312,7 @@ local function initialize()
         end
     end
 
-    SLASH_COMMANDS["/tsccheck"] = function()
+    SLASH_COMMANDS["/check"] = function()
         if LibHistoire then
             if LibHistoire:IsReady() then
                 CHAT_ROUTER:AddSystemMessage("[TSC] LibHistoire: Ready")
@@ -1329,7 +1324,7 @@ local function initialize()
         end
     end
 
-    SLASH_COMMANDS["/tscguilds"] = function()
+    SLASH_COMMANDS["/guilds"] = function()
         CHAT_ROUTER:AddSystemMessage("[TSC] Your Guild Slots:")
         local numGuilds = GetNumGuilds()
         if numGuilds == 0 then
@@ -1344,7 +1339,7 @@ local function initialize()
         end
     end
 
-    SLASH_COMMANDS["/tscclear"] = function()
+    SLASH_COMMANDS["/clear"] = function()
         CHAT_ROUTER:AddSystemMessage("[TSC] Clearing guild history cache for all guilds...")
         for i = 1, GetNumGuilds() do
             local guildId = GetGuildId(i)
@@ -1355,7 +1350,7 @@ local function initialize()
         CHAT_ROUTER:AddSystemMessage("[TSC] Cache clearing complete")
     end
 
-    SLASH_COMMANDS["/tscdebug"] = function()
+    SLASH_COMMANDS["/debug"] = function()
         CHAT_ROUTER:AddSystemMessage("[TSC] Debug Info:")
         if LibHistoire then
             CHAT_ROUTER:AddSystemMessage("  LibHistoire ready: " .. tostring(LibHistoire:IsReady()))
@@ -1373,6 +1368,14 @@ local function initialize()
     end
 
     isInitialized = true
+
+
+    -- zo_callLater(function()
+    --     CHAT_ROUTER:AddSystemMessage("Hello" .. tostring(PLAYER_ACCOUNT_NAME) .. "!")
+    --     CHAT_ROUTER:AddSystemMessage("Thanks for helping out with testing!")
+    --     getServerPlatform()
+    --     CHAT_ROUTER:AddSystemMessage("Please let us know if the server and platform message above is accurate!")
+    -- end, 5000)
 end
 
 -- ============================================================================
