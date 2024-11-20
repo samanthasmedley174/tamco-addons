@@ -23,8 +23,7 @@ local MAX_URL_CHARS_XBOX = 8000
 local MAX_URL_CHARS_PS = 8000
 
 -- QR_BATCH_SIZE removed - now using character-aware batching with URL character limits
--- local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
-local PROD_URL = "https://qz1mkettpa.execute-api.us-east-2.amazonaws.com/prod/data"
+local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
 -- local LOCAL_TESTING_URL = ""
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
@@ -622,12 +621,9 @@ end
 local function createURLFromEncodedBatch(encodedBatch, guildId, referenceTimestamp)
     local dataString = table.concat(encodedBatch.encodedTransactions, TRANSACTION_SEPARATOR)
 
-    -- Add player parameter - use "0" as default, or URL-encoded player name if personal tracking enabled
-    local playerName = savedVars.trackPersonalSales and PLAYER_ACCOUNT_NAME or "0"
-    local encodedPlayerName = zo_urlEncode(playerName)
-    
-    local url = string.format("%s?sp=%d&g=%d&t=%d&p=%s&d=%s", 
-        PROD_URL, SERVER_PLATFORM, guildId, referenceTimestamp, encodedPlayerName, dataString)
+    -- PROD_URL
+    local url = string.format("%s?sp=%d&g=%d&t=%d&d=%s", PROD_URL, SERVER_PLATFORM, guildId, referenceTimestamp,
+        dataString)
 
     -- LOCAL_TESTING_URL
     --  local url = string.format("%s?sp=%d&g=%d&t=%d&d=%s", LOCAL_TESTING_URL, SERVER_PLATFORM, guildId, referenceTimestamp,
@@ -1382,12 +1378,12 @@ local function initialize()
     isInitialized = true
 
 
-    -- zo_callLater(function()
-    --     CHAT_ROUTER:AddSystemMessage("Hello" .. tostring(PLAYER_ACCOUNT_NAME) .. "!")
-    --     CHAT_ROUTER:AddSystemMessage("Thanks for helping out with testing!")
-    --     getServerPlatform()
-    --     CHAT_ROUTER:AddSystemMessage("Please let us know if the server and platform message above is accurate!")
-    -- end, 5000)
+    zo_callLater(function()
+        CHAT_ROUTER:AddSystemMessage("Hello" .. tostring(PLAYER_ACCOUNT_NAME) .. "!")
+        CHAT_ROUTER:AddSystemMessage("Thanks for helping out with testing!")
+        getServerPlatform()
+        CHAT_ROUTER:AddSystemMessage("Please let us know if the server and platform message above is accurate!")
+    end, 5000)
 end
 
 -- ============================================================================
