@@ -34,7 +34,7 @@ function TSCPriceDataAPI:GetPrice(itemLink)
     end
 
     if data == nil then return nil end
-    -- Parse string format: "avgPrice,commonMin,commonMax"
+    -- Parse string format: "avgPrice,commonMin,commonMax,salesCount"
     if type(data) == "string" then
         return tonumber(string.match(data, "^([^,]+)"))
     end
@@ -59,13 +59,14 @@ function TSCPriceDataAPI:GetItemData(itemLink)
     end
 
     if data == nil then return nil end
-    -- Parse string format: "avgPrice,commonMin,commonMax"
+    -- Parse string format: "avgPrice,commonMin,commonMax,salesCount"
     if type(data) == "string" then
-        local avgPrice, commonMin, commonMax = string.match(data, "([^,]+),([^,]+),([^,]+)")
+        local avgPrice, commonMin, commonMax, salesCount = string.match(data, "([^,]+),([^,]+),([^,]+),([^,]+)")
         return {
             avgPrice = tonumber(avgPrice),
             commonMin = tonumber(commonMin),
-            commonMax = tonumber(commonMax)
+            commonMax = tonumber(commonMax),
+            salesCount = tonumber(salesCount)
         }
     end
 
