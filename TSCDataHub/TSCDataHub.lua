@@ -30,14 +30,14 @@ local PROD_PATH_PREFIX = "/prod/esoapp/submissions"
 
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
--- Helper function to get base URL with access code
+-- Helper function to get base URL with website code
 local function getBaseURL()
     local sv = TSCDataHub.savedVars
     if not sv then
         return nil
     end
-    local accessCode = sv.accessCode or ""
-    if accessCode == "" then
+    local websiteCode = sv.websiteCode or ""
+    if websiteCode == "" then
         return nil -- Will be checked before use
     end
     
@@ -50,7 +50,7 @@ local function getBaseURL()
         pathPrefix = LOCAL_PATH_PREFIX
     end
     
-    return string.format("%s%s/%s", baseURL, pathPrefix, accessCode)
+    return string.format("%s%s/%s", baseURL, pathPrefix, websiteCode)
 end
 
 -- Default values for flags optimization
@@ -114,7 +114,7 @@ TSCDataHub.capturedGuildsThisSession = {} -- Track guilds captured in this sessi
 TSCDataHub.default = {
     trackPersonalSales = false,
     guildSubmissionTracking = {}, -- Track last submission timestamp per guild
-    accessCode = "", -- 32-character alphanumeric code for personal submission page
+    websiteCode = "", -- 32-character alphanumeric code for personal submission page
     pin = "", -- User PIN for authentication
 }
 
@@ -687,7 +687,7 @@ end
 local function computeBatchBudget(guildId, guildName, referenceTimestamp)
     local baseURL = getBaseURL()
     if not baseURL then
-        return 0, "", "" -- Invalid - access code missing
+        return 0, "", "" -- Invalid - website code missing
     end
 
     local sv = TSCDataHub.savedVars
@@ -714,7 +714,7 @@ end
 local function createURLFromEncodedBatch(encodedBatch, guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
     local baseURL = getBaseURL()
     if not baseURL then
-        return nil, 0 -- Invalid - access code missing
+        return nil, 0 -- Invalid - website code missing
     end
 
     local sv = TSCDataHub.savedVars
@@ -943,8 +943,8 @@ local function CheckGuildAndCollect(guildSlot)
                         -- CHAT_ROUTER:AddSystemMessage("[TSC] Creating batches from " .. #encodedTransactions .. " transactions with " .. MAX_ALLOWED_CHARS .. " char limit")
                         local batchBudget, encodedPlayerName, encodedGuildName = computeBatchBudget(guildData.guildId, guildData.guildName, referenceTimestamp)
                         local sv = TSCDataHub.savedVars
-                        if batchBudget == 0 and (not sv or not sv.accessCode or sv.accessCode == "") then
-                            CHAT_ROUTER:AddSystemMessage("[TSC] Error: Access code is required to create submission URLs")
+                        if batchBudget == 0 and (not sv or not sv.websiteCode or sv.websiteCode == "") then
+                            CHAT_ROUTER:AddSystemMessage("[TSC] Error: Website code is required to create submission URLs")
                             TSCDataHub.setProcessing(false)
                             return
                         end
@@ -959,7 +959,7 @@ local function CheckGuildAndCollect(guildSlot)
                             local url, length = createURLFromEncodedBatch(batch, guildData.guildId, encodedGuildName, referenceTimestamp, encodedPlayerName)
                             local sv = TSCDataHub.savedVars
                             if not url then
-                                CHAT_ROUTER:AddSystemMessage("[TSC] Error: Access code is required to create submission URLs")
+                                CHAT_ROUTER:AddSystemMessage("[TSC] Error: Website code is required to create submission URLs")
                                 break
                             elseif not sv or not sv.pin or sv.pin == "" then
                                 CHAT_ROUTER:AddSystemMessage("[TSC] Error: PIN is required to create submission URLs")
@@ -1051,7 +1051,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v125: Production Release]],
+        tooltip = [[v124: Production Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1113,7 +1113,7 @@ local function setupSettingsMenu()
             "• Open Menu > Social > Guilds, select a guild, then History > Purchases\n" ..
             "• Scroll backward (Right Trigger on Xbox, R2 on PS) to load at least 8 days of sales data\n" ..
             "• Repeat for each guild you want to capture\n\n" ..
-            "Enter your Access Code and PIN in the 'Data Submission Settings' section below.\n" ..
+            "Enter your Website Code and PIN in the 'Data Submission Settings' section below.\n" ..
             "This is a one-time setup - your information will be saved and remembered.\n" ..
             "Note: If you clear your game data or cache, you will need to re-enter this information.\n\n" ..
             "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
@@ -1135,19 +1135,19 @@ local function setupSettingsMenu()
     }
     settings:AddSetting(tradingSettingsSection)
 
-    local accessCodeSetting = {
+    local websiteCodeSetting = {
         type = LHAS.ST_EDIT,
-        label = "Access Code",
-        tooltip = "Enter your 32-character access code to enable data submissions. This code identifies your personal submission page.",
+        label = "Website Code",
+        tooltip = "Enter your 32-character website code to enable data submissions. This code identifies your personal submission page.",
         maxChars = 32,
         setFunction = function(value)
-            savedVars.accessCode = value or ""
+            savedVars.websiteCode = value or ""
         end,
         getFunction = function()
-            return savedVars.accessCode or ""
+            return savedVars.websiteCode or ""
         end,
     }
-    settings:AddSetting(accessCodeSetting)
+    settings:AddSetting(websiteCodeSetting)
 
     local pinSetting = {
         type = LHAS.ST_EDIT,
@@ -1274,9 +1274,9 @@ local function setupSettingsMenu()
                 if not sv then
                     return true
                 end
-                -- Disable if access code is missing
-                local accessCode = sv.accessCode or ""
-                if accessCode == "" then
+                -- Disable if website code is missing
+                local websiteCode = sv.websiteCode or ""
+                if websiteCode == "" then
                     return true
                 end
                 -- Disable if PIN is missing
@@ -1317,9 +1317,9 @@ local function setupSettingsMenu()
         tooltip = "Submit the next URL in the queue",
         buttonText = "Submit",
         disable = function()
-            -- Disable if access code is missing
-            local accessCode = savedVars and savedVars.accessCode or ""
-            if accessCode == "" then
+            -- Disable if website code is missing
+            local websiteCode = savedVars and savedVars.websiteCode or ""
+            if websiteCode == "" then
                 return true
             end
             -- Disable if PIN is missing
@@ -1460,7 +1460,7 @@ local function initialize()
         -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
         -- CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
         CHAT_ROUTER:AddSystemMessage("PIN: " .. savedVars.pin)
-        CHAT_ROUTER:AddSystemMessage("ACCESS_CODE: " .. savedVars.accessCode)
+        CHAT_ROUTER:AddSystemMessage("WEBSITE_CODE: " .. savedVars.websiteCode)
     end
 
     -- Cache Management Commands
