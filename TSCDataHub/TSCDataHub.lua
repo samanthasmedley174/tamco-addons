@@ -49,8 +49,6 @@ local totalUrls = nil
 TSCDataHub.currentTask = nil
 TSCDataHub.progressText = ""
 TSCDataHub.isProcessing = false
-TSCDataHub.processingGuildSlot = nil -- Track which guild is being processed
-TSCDataHub.capturedGuildsThisSession = {} -- Track guilds captured in this session
 
 local OVERRIDE_AND_USE_CONSOLE_LIMITS = false
 
@@ -171,19 +169,12 @@ function TSCDataHub.updateProgress(text)
     TSCDataHub.updateSubmitButton()
 end
 
-function TSCDataHub.setProcessing(processing, guildSlot)
+function TSCDataHub.setProcessing(processing)
     TSCDataHub.isProcessing = processing
-    TSCDataHub.processingGuildSlot = processing and guildSlot or nil
     if not processing then
         TSCDataHub.progressText = ""
         TSCDataHub.currentTask = nil
-        TSCDataHub.processingGuildSlot = nil
     end
-    TSCDataHub.updateSubmitButton()
-end
-
-function TSCDataHub.resetSessionCaptures()
-    TSCDataHub.capturedGuildsThisSession = {}
     TSCDataHub.updateSubmitButton()
 end
 
@@ -248,16 +239,11 @@ function TSCDataHub.submitNextURL()
         if currentUrlIndex > totalUrls then
             -- All URLs submitted - now update the submission tracking
             if urlTable.pendingSubmissionTracking then
-                -- Update tracking for all guilds that were captured this session
-                for guildId, pending in pairs(urlTable.pendingSubmissionTracking) do
-                    setSubmissionTracking(pending.guildId, pending.timestamp, pending.eventId)
-                end
+                local pending = urlTable.pendingSubmissionTracking
+                setSubmissionTracking(pending.guildId, pending.timestamp, pending.eventId)
                 CHAT_ROUTER:AddSystemMessage("All data submitted successfully - submission tracking updated")
                 urlTable.pendingSubmissionTracking = nil
             end
-            
-            -- Reset session captures since all data has been submitted
-            TSCDataHub.resetSessionCaptures()
         end
 
         TSCDataHub.updateSubmitButton()
@@ -796,9 +782,6 @@ local function CheckGuildAndCollect(guildSlot)
         CHAT_ROUTER:AddSystemMessage("[TSC] Processing already in progress. Please wait or cancel current operation.")
         return
     end
-    
-    -- Set processing state for this guild
-    TSCDataHub.setProcessing(true, guildSlot)
 
     -- Step 1: Validate guild slot
     local isValid, errorMsg = validateGuildSlot(guildSlot)
@@ -813,10 +796,7 @@ local function CheckGuildAndCollect(guildSlot)
     -- CHAT_ROUTER:AddSystemMessage("Starting data collection for guild " .. guildData.obfuscatedId)
 
     -- Step 3: Start async data collection for the entire time range
-    -- Initialize urlTable if it doesn't exist, but don't clear existing URLs
-    if not urlTable then
-        urlTable = {}
-    end
+    urlTable = {} -- Store all URLs for data export
 
     -- Wait a bit for guild history to be ready (like LibHistoire does)
     zo_callLater(function()
@@ -841,32 +821,29 @@ local function CheckGuildAndCollect(guildSlot)
                             table.insert(urlTable, url)
                         end
 
-                        -- Update URL indices (don't reset if there are existing URLs)
-                        if not currentUrlIndex then
+                        if #urlTable > 0 then
+                            -- Store URLs for manual submission
                             currentUrlIndex = 1
-                        end
-                        totalUrls = #urlTable
+                            totalUrls = #urlTable
 
-                        -- Store data for submission tracking update after submission
-                        local newestTime, newestEventId = findNewestEventInBatch(salesEvents)
-                        if newestTime then
-                            -- Store these for updating after all URLs are submitted
-                            if not urlTable.pendingSubmissionTracking then
-                                urlTable.pendingSubmissionTracking = {}
+                            -- Store data for submission tracking update after submission
+                            local newestTime, newestEventId = findNewestEventInBatch(salesEvents)
+                            if newestTime then
+                                -- Store these for updating after all URLs are submitted
+                                urlTable.pendingSubmissionTracking = {
+                                    guildId = guildData.guildId,
+                                    timestamp = newestTime,
+                                    eventId = newestEventId
+                                }
                             end
-                            urlTable.pendingSubmissionTracking[guildData.guildId] = {
-                                guildId = guildData.guildId,
-                                timestamp = newestTime,
-                                eventId = newestEventId
-                            }
-                        end
 
-                        -- Mark this guild as captured this session
-                        TSCDataHub.capturedGuildsThisSession[guildData.guildId] = true
-                        
-                        TSCDataHub.setProcessing(false)
-                        -- CHAT_ROUTER:AddSystemMessage("[TSC] Processing complete! Ready to submit " .. totalUrls .. " URLs")
-                        TSCDataHub.updateSubmitButton()
+                            TSCDataHub.setProcessing(false)
+                            -- CHAT_ROUTER:AddSystemMessage("[TSC] Processing complete! Ready to submit " .. totalUrls .. " URLs")
+                            TSCDataHub.updateSubmitButton()
+                        else
+                            TSCDataHub.setProcessing(false)
+                            CHAT_ROUTER:AddSystemMessage("No new data found to submit")
+                        end
                     else
                         TSCDataHub.setProcessing(false)
                         CHAT_ROUTER:AddSystemMessage("No transactions to encode")
@@ -921,7 +898,9 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v108: Testing Release]],
+        tooltip = [[v108: Testing Release
+
+Scan the QR code to view full update details]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1017,13 +996,24 @@ local function setupSettingsMenu()
     }
     settings:AddSetting(tradingSettingsSection)
 
+
+
+    -- Days to capture is now handled automatically by the windowing system
+    local automaticCaptureInfo = {
+        type = LHAS.ST_LABEL,
+        label = "Data is captured automatically based on your submission history:\n" ..
+            "• First time: Up to 7 days of data\n" ..
+            "• Returning users: Only new data since last submission\n" ..
+            "• No duplicate data sent to server",
+    }
+    settings:AddSetting(automaticCaptureInfo)
+
     -- Create individual sections for each guild
     local numGuilds = GetNumGuilds()
 
     for i = 1, numGuilds do
-        local guildSlot = i -- Capture the guild slot value
-        local guildId = GetGuildId(guildSlot)
-        local guildName = GetGuildName(guildId) or "Guild " .. guildSlot
+        local guildId = GetGuildId(i)
+        local guildName = GetGuildName(guildId) or "Guild " .. i
         
         -- Create section for this guild
         local guildSection = {
@@ -1036,30 +1026,20 @@ local function setupSettingsMenu()
         local guildStatusLabel = {
             type = LHAS.ST_LABEL,
             label = function()
-                local currentGuildId = GetGuildId(guildSlot)
+                local guildId = GetGuildId(i)
 
-                -- Check if this guild is currently being processed
-                if TSCDataHub.isProcessing and TSCDataHub.processingGuildSlot == guildSlot then
-                    return "|cFFFF00Capturing...|r" -- Yellow
-                end
-
-                -- Check if this guild was captured this session
-                if TSCDataHub.capturedGuildsThisSession[currentGuildId] then
-                    return "|c00FFFF Submit URL(s) below|r" -- Cyan
-                end
-
-                -- Standard status checking
-                local submissionTracking = getSubmissionTracking(currentGuildId)
-                local statusText = "Ready to capture"
+                -- Check if guild has new data to submit
+                local submissionTracking = getSubmissionTracking(guildId)
+                local statusText = "Ready to upload"
                 local color = "|c00FF00" -- Green
 
                 if submissionTracking and submissionTracking.lastSubmissionTime then
                     -- Check if there's new data since last submission
-                    local numEvents = GetNumGuildHistoryEvents(currentGuildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
+                    local numEvents = GetNumGuildHistoryEvents(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER)
                     if numEvents > 0 then
-                        local _, newestTime = GetGuildHistoryEventBasicInfo(currentGuildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, 1)
+                        local _, newestTime = GetGuildHistoryEventBasicInfo(guildId, GUILD_HISTORY_EVENT_CATEGORY_TRADER, 1)
                         if newestTime and newestTime > submissionTracking.lastSubmissionTime then
-                            statusText = "Ready to capture"
+                            statusText = "Ready to upload"
                             color = "|c00FF00" -- Green
                         else
                             statusText = "Up to date"
@@ -1071,7 +1051,7 @@ local function setupSettingsMenu()
                     end
                 else
                     -- No previous submission
-                    statusText = "Ready to capture"
+                    statusText = "Ready to upload"
                     color = "|c00FF00" -- Green
                 end
 
@@ -1086,20 +1066,16 @@ local function setupSettingsMenu()
             label = "Capture " .. guildName,
             tooltip = "Start capturing new sales data for " .. guildName .. " (automatically determines what data to capture)",
             buttonText = function()
-                local currentGuildId = GetGuildId(guildSlot)
-                if TSCDataHub.isProcessing and TSCDataHub.processingGuildSlot == guildSlot then
-                    return "Capturing..."
-                elseif TSCDataHub.capturedGuildsThisSession[currentGuildId] then
-                    return "Captured"
+                if TSCDataHub.isProcessing then
+                    return "Processing..."
                 end
                 return "Capture"
             end,
             disable = function()
-                local currentGuildId = GetGuildId(guildSlot)
-                return TSCDataHub.isProcessing or TSCDataHub.capturedGuildsThisSession[currentGuildId]
+                return TSCDataHub.isProcessing
             end,
             clickHandler = function()
-                return CheckGuildAndCollect(guildSlot)
+                return CheckGuildAndCollect(i)
             end
         }
         settings:AddSetting(guildCaptureButton)
@@ -1156,7 +1132,7 @@ local function setupSettingsMenu()
     local clearTrackingButton = {
         type = LHAS.ST_BUTTON,
         label = "Clear Submission Tracking",
-        tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to capture'",
+        tooltip = "Reset submission tracking for all guilds - makes all guilds appear as 'Ready to upload'",
         buttonText = "Clear Tracking",
         clickHandler = function()
             clearAllSubmissionTracking()
