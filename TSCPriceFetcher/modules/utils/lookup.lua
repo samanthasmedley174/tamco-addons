@@ -14,11 +14,11 @@ end
 
 function Lookup.getFormattedPrice(itemLink)
     if not IsValidItemLink(itemLink) then
-        -- TSCPriceFetcher.modules.debug.warn("Lookup: invalid itemLink")
+        TSCPriceFetcher.modules.debug.warn("Lookup: invalid itemLink")
         return "no price data"
     end
 
-    -- TSCPriceFetcher.modules.debug.log("Lookup: Looking up price for itemLink='" .. tostring(itemLink) .. "'")
+    TSCPriceFetcher.modules.debug.log("Lookup: Looking up price for itemLink='" .. tostring(itemLink) .. "'")
     return TSCPriceFetcher.modules.dataAdapter.getFormattedAvgPrice(itemLink)
 end
 

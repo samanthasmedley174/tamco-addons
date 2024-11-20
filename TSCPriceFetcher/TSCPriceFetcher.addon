@@ -1,9 +1,9 @@
 ## Title: TSCPriceFetcher
-## Author: @besidemyself
+## Author: BesideMyself, SavageTSC
 ## Description: A price lookup tool for fetching item prices
 ## APIVersion: 101045 101046 101047
-## Version: 1.0.3
-## AddOnVersion: 1.0.3
+## Version: 1.0.2
+## AddOnVersion: 1.0.2
 ## SavedVariables: TSCPriceFetcherData
 ## OptionalDependsOn: TSCPriceData TSCPriceDataLite
 ##
