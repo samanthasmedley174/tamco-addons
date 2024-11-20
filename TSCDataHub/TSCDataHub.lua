@@ -1051,7 +1051,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v124: Production Release]],
+        tooltip = [[v123: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1094,8 +1094,7 @@ local function setupSettingsMenu()
     local infoButton = {
         type = LHAS.ST_BUTTON,
         label = "Info",
-        tooltip = "To sign up to submit data, contact SavageTSC on Discord\n\n" ..
-            "Data is captured automatically based on your submission history:\n" ..
+        tooltip = "Data is captured automatically based on your submission history:\n" ..
             "• First time: Up to 8 days of data\n" ..
             "• Returning users: Only new data since last submission\n" ..
             "• No duplicate data sent to server",
@@ -1109,13 +1108,7 @@ local function setupSettingsMenu()
         type = LHAS.ST_BUTTON,
         label = "How To",
         tooltip =
-            "Before capturing, manually scroll through your guild sales history in-game:\n" ..
-            "• Open Menu > Social > Guilds, select a guild, then History > Purchases\n" ..
-            "• Scroll backward (Right Trigger on Xbox, R2 on PS) to load at least 8 days of sales data\n" ..
-            "• Repeat for each guild you want to capture\n\n" ..
-            "Enter your Website Code and PIN in the 'Data Submission Settings' section below.\n" ..
-            "This is a one-time setup - your information will be saved and remembered.\n" ..
-            "Note: If you clear your game data or cache, you will need to re-enter this information.\n\n" ..
+            "First, enter your Website Code and PIN in the 'Data Submission Settings' section below.\n\n" ..
             "To capture sales data, scroll down to the first 'Ready to Capture' guild and click the 'Capture' button.\n\n" ..
             "Do this for each guild you want to capture data for.\n\n" ..
             "To submit the data, click the 'Submit URL ...' button below.\n\n" ..
