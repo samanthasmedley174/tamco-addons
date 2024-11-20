@@ -925,7 +925,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v114: Testing Release]],
+        tooltip = [[v108: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
