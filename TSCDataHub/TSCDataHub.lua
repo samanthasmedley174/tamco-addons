@@ -17,7 +17,7 @@ local MAX_ALLOWED_CHARS = 7800 -- 8000 max from aws policy, subtracted 200 for s
 
 -- QR_BATCH_SIZE removed - now using character-aware batching with URL character limits
 -- local PROD_URL = "https://late-violet-4084.fly.dev/prod/esoapp/up/qr-data"
-local PROD_URL = "https://s4hqbc3lxismtzx6zvl33ylvjy0xcfix.lambda-url.us-east-2.on.aws/"
+local PROD_URL = "https://qz1mkettpa.execute-api.us-east-2.amazonaws.com/prod/data"
 -- local LOCAL_TESTING_URL = ""
 local TRANSACTION_SEPARATOR = ";" -- Between transactions
 
@@ -26,6 +26,25 @@ local DEFAULT_QUALITY = 1  -- Normal quality (most common)
 local DEFAULT_PERSONAL = 0  -- Not currently used, kept for future personal sales tracking
 local DEFAULT_QUANTITY = 1  -- Single item (most common)
 
+-- Whitelist: Only approved accounts can use the addon to submit data
+-- The whitelist limits data submission from the entire player base to a select few
+-- approved contributors who represent large trading guilds. This helps control data volume
+-- and ensures submissions come from trusted sources with significant trading activity.
+-- Accounts are normalized (lowercase, no @, no spaces) for matching.
+-- Please contact SavageTSC in the Tamriel Savings Co public Discord server with any
+-- questions or to become a contributor - https://discord.gg/7DzUVCQ
+local WHITELIST = {
+    ["savagetsc"] = true,
+    ["besidemyself"] = true,
+    ["tsc staff 1"] = true,
+    ["tsc staff 2"] = true,
+    ["tsc staff 3"] = true,
+    ["tsc staff 4"] = true,
+    ["tsc staff 5"] = true,
+    ["tsc staff 6"] = true,
+    ["tsc staff 7"] = true,
+    ["tsc vault"] = true,
+}
 
 -- Flag Encoding Rules (for backend parsing):
 -- Flags are variable-length for compression optimization
@@ -966,7 +985,7 @@ local function setupSettingsMenu()
     local whatsNewButton = {
         type = LHAS.ST_BUTTON,
         label = "What's New",
-        tooltip = [[v121: Testing Release]],
+        tooltip = [[v120: Testing Release]],
         buttonText = "View Update Info",
         clickHandler = function(control, button)
         end,
@@ -1279,8 +1298,13 @@ local function initialize()
         return
     end
 
-    -- Initialize server platform once
+    -- Check whitelist FIRST - if not whitelisted, addon does nothing
     local accountName = normalizePlayerName(GetDisplayName())
+    if not WHITELIST[accountName] then
+        return -- Silent exit, no UI, no commands, no processing
+    end
+
+    -- Initialize server platform once
     setServerPlatform()
     setupSettingsMenu()
     PLAYER_ACCOUNT_NAME = accountName
