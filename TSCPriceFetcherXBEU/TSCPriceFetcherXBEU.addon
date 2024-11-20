@@ -1,0 +1,26 @@
+## Title: TSCPriceFetcherXBEU
+## Author: BesideMyself, SavageTSC
+## Description: A price lookup tool for fetching item prices
+## APIVersion: 101047 101048
+## AddOnVersion: 155
+## SavedVariables: TSCPriceFetcherDataXBEU
+## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000
+##
+## This Add-on is not created by, affiliated with or sponsored by ZeniMax Media Inc. or its affiliates. 
+## The Elder Scrolls® and related logos are registered trademarks or trademarks of ZeniMax Media Inc. in the United States and/or other countries. 
+## All rights reserved
+##
+## You can read the full terms at https://account.elderscrollsonline.com/add-on-terms
+
+## Bindings: TSCPriceFetcherBindingsXBEU.xml
+
+# load xml file
+TSCAnnouncementPanel.xml
+
+# load Data then API
+TSCPriceDataXBEU.min.lua
+APIXBEU.lua
+
+# Load the main addon last
+TSCPriceFetcherXBEU.lua
+
