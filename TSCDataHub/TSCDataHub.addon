@@ -1,7 +1,7 @@
 ## Author: BesideMyself, SavageTSC
 ## Description: TSC addon used to export sales data via QR code
 ## APIVersion: 101045 101046 101047 101048
-## AddOnVersion: 102
+## AddOnVersion: 101
 ## SavedVariables: TSCDataHubData
 ## DependsOn: LibQRCode>=046 LibHarvensAddonSettings>=20000
 ##

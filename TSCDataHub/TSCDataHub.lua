@@ -882,16 +882,9 @@ local function getServerPlatform()
         [9] = "Unknown"
     }
     
-    -- local platformName = platformNames[SERVER_PLATFORM] or "Unknown"
-    -- CHAT_ROUTER:AddSystemMessage("You are playing on: " .. platformName)
-    -- return platformName
-    local worldName = GetWorldName()
-    local platform = GetUIPlatform()
-    CHAT_ROUTER:AddSystemMessage("GetWorldName: " .. worldName )
-    CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platform)
-    CHAT_ROUTER:AddSystemMessage("GetUIPlatform: " .. platformNames[platform])
-
-
+    local platformName = platformNames[SERVER_PLATFORM] or "Unknown"
+    CHAT_ROUTER:AddSystemMessage("You are playing on: " .. platformName)
+    return platformName
 end
 
 local function initialize()
@@ -926,13 +919,8 @@ local function initialize()
         CheckGuildAndCollect(5, 2)
     end
 
-    SLASH_COMMANDS["/tester"] = function()
-        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PC: " .. UI_PLATFORM_PC)
-        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS4: " .. UI_PLATFORM_PS4)
-        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_PS5: " .. UI_PLATFORM_PS5)
-        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_REUSE_ME: " .. UI_PLATFORM_REUSE_ME)
-        CHAT_ROUTER:AddSystemMessage("UI_PLATFORM_XBOX: " .. UI_PLATFORM_XBOX)
-    end
+    -- SLASH_COMMANDS["/tester"] = function()
+    -- end
 
     isInitialized = true
 
