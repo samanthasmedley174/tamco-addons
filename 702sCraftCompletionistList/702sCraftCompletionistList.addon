@@ -1,0 +1,11 @@
+## Title: 702's Craft Completionist List
+## APIVersion: 101048
+## Author: The702Guy
+## Version: 2.3.2
+## DependsOn: LibHarvensAddonSettings LibConsoleDialogs LibCharacterKnowledge LibQRCode LibChatMessage
+## SavedVariables: MasterPlanList
+
+MPL_ResearchPanel.xml
+MPL_CompletionPanel.xml
+702sCraftCompletionistList.lua
+MPL_ResearchUtils.lua
