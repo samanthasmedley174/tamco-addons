@@ -1,0 +1,43 @@
+<GuiXml>
+    <Controls>
+        <Control name="NoMoreDMCA_QR_Pixel_Template" virtual="true">
+            <Dimensions x="14" y="14" />
+            <Controls>
+                <Texture name="$(parent)Box" color="000000">
+                    <AnchorFill />
+                </Texture>
+            </Controls>
+        </Control>
+
+        <TopLevelControl name="NoMoreDMCAContainer" hidden="true">
+            <Dimensions x="450" y="450" />
+            <Anchor point="CENTER" relativeTo="GuiRoot" relativePoint="CENTER" />
+            <Controls>
+                <Backdrop name="$(parent)BG" edgeColor="000000" centerColor="FFFFFF">
+                    <AnchorFill />
+                    <Edge thickness="2" />
+                </Backdrop>
+				<Backdrop name="$(parent)CountdownBG" centerColor="88000000" edgeColor="AA333333">
+					<Anchor point="TOP" relativeTo="$(parent)" relativePoint="BOTTOM" offsetY="10" />
+					<Dimensions x="400" y="120" />
+					<Edge thickness="2" />
+					<Controls>
+						<Label name="$(parent)Label" font="ZoFontGamepad34" color="FFFFFF" horizontalAlignment="CENTER" verticalAlignment="CENTER">
+							<AnchorFill />
+						</Label>
+					</Controls>
+				</Backdrop>
+				<Backdrop name="$(parent)DiscriptionBG" centerColor="88000000" edgeColor="AA333333">
+					<Anchor point="BOTTOM" relativeTo="$(parent)" relativePoint="TOP" offsetY="-10" />
+					<Dimensions x="950" y="120" />
+					<Edge thickness="2" />
+					<Controls>
+						<Label name="$(parent)Label" font="ZoFontGamepad34" color="FFFFFF" horizontalAlignment="CENTER" verticalAlignment="CENTER">
+							<AnchorFill />
+						</Label>
+					</Controls>
+				</Backdrop>
+            </Controls>
+        </TopLevelControl>
+    </Controls>
+</GuiXml>
