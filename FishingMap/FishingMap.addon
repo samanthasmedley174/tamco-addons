@@ -1,0 +1,11 @@
+## Title: Fishing Map
+## Description: Shows fishing holes on the map
+## Author: Gamer_sa22
+## Version: 1.8.5
+## APIVersion: 101048 101049
+## SavedVariables: FishingMapSavedVariables
+## DependsOn: LibMapPins-1.0
+## OptionalDependsOn LibHarvensAddonSettings 
+
+FishingMap_Nodes.lua
+FishingMap.lua
