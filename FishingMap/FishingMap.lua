@@ -212,39 +212,90 @@ local function GetFishingAchievement(subzone)
 	return false
 end
 
+local currentLoadingCoroutine = nil
+local currentLoadingMap = ""
+
+-- Helper to stop any existing loading process
+local function AbortPinLoading()
+    EVENT_MANAGER:UnregisterForUpdate(AddonName .. "_PinLoader")
+    currentLoadingCoroutine = nil
+end
+-- Cheap to Run Create Pin that does only what I need
+local function customCreatePin(pinType, pinTag, xLoc, yLoc)
+    local pin, pinKey = PinManager:AcquireObject()
+    pin:SetData(pinType, pinTag)
+    pin:SetOriginalPosition(xLoc, yLoc)
+    pin:SetLocation(xLoc, yLoc)
+        
+    local customPinData = PinManager.customPins[pinType]
+    if customPinData then
+        PinManager:MapPinLookupToPinKey(customPinData.pinTypeString, pinType, pinTag, pinKey)
+    end
+end
 --Callbacks
 local function MapPinAddCallback()
-	--make sure it once run once on the map 
-	if UpdatingMapPin==true or GetMapType()>MAPTYPE_ZONE or not PinManager:IsCustomPinEnabled(FishingPinData.id) then return end
-	local mapData=nil 
-	local notDone=true
-	local function MakePins()
-		if mapData and notDone then
-			for i1,pinData in pairs(mapData) do
-				if notDone[pinData[3]] then
-					--set the fish texture
-					FishingPinData.texture=FishIcon[pinData[3]][GetFMSettings().fishIconSelected[pinData[3]]]
-					--make the pin, use the hole type(pinData[3]) in pinTag so it can be called for tooltip
-					PinManager:CreatePin(FishingPinData.id,{[1]=pinData[3]},pinData[1],pinData[2])
+    if GetMapType() > MAPTYPE_ZONE or not PinManager:IsCustomPinEnabled(FishingPinData.id) then return end
+    local subzone = GetMapTileTexture():match("[^\\/]+$"):lower():gsub("%.dds$", ""):gsub("_[0-9]+$", "")
+    -- check if were adding pins, if same map exit, othewise stop loading old pins so we can add new
+    if currentLoadingCoroutine ~= nil then
+        if currentLoadingMap == subzone then return end
+        AbortPinLoading()
+    end
+    currentLoadingMap = subzone
+
+	local workQueue = {}
+    local subzonesToProcess = {}
+
+	--Add the map we want target 
+    if subzone == "u48_overland_base" then
+        table.insert(subzonesToProcess, "u48_overland_base_east")
+        table.insert(subzonesToProcess, "u48_overland_base_west")
+    else
+        table.insert(subzonesToProcess, subzone)
+    end
+
+	-- Process's Subzones
+	-- Get data from FishingMap_Nodes and checks if we need to show the data
+	-- Add data(pins) to workQueue so we have 1 big table to process
+    for _, name in ipairs(subzonesToProcess) do
+        local mapData = FishingMapNodes[name]
+        local achStatus = GetFishingAchievement(name)
+        if mapData and achStatus then
+			for i = 1, #mapData do
+				local pinData = mapData[i]
+				if achStatus[pinData[3]] then
+					workQueue[#workQueue+1] = pinData
+				end
+			end
+        end
+    end
+	local pinIndex = 1
+	local frameBudget = 0.002
+
+    currentLoadingCoroutine = function()
+        local startTime = GetGameTimeSeconds()
+        while pinIndex <= #workQueue do
+			local pinData = workQueue[pinIndex]
+			FishingPinData.texture = FishIcon[pinData[3]][GetFMSettings().fishIconSelected[pinData[3]]]
+			customCreatePin(FishingPinData.id, {[1]=pinData[3]}, pinData[1], pinData[2])
+			pinIndex = pinIndex + 1
+			if pinIndex % 10 == 0 then
+				if (GetGameTimeSeconds() - startTime) > frameBudget then
+					return
 				end
 			end
 		end
-	end
-	UpdatingMapPin=true
-	local subzone = GetMapTileTexture():match("[^\\/]+$"):lower():gsub("%.dds$", ""):gsub("_[0-9]+$", "")
-	-- this has 2 parts so we split it
-	if subzone == "u48_overland_base" then 
-		subzone = "u48_overland_base_east" 
-		mapData=FishingMapNodes[subzone]
-		notDone=GetFishingAchievement(subzone)
-		MakePins()
-		subzone = "u48_overland_base_west" 
-	end
-	
-	mapData=FishingMapNodes[subzone]
-	notDone=GetFishingAchievement(subzone)
-	MakePins()
-	UpdatingMapPin=false
+        AbortPinLoading()
+    end
+
+    -- Start Coroutine
+    EVENT_MANAGER:RegisterForUpdate(AddonName .. "_PinLoader", 0, function()
+        if currentLoadingCoroutine then
+            currentLoadingCoroutine()
+        else
+            AbortPinLoading()
+        end
+    end)
 end
 
 local function GetToolTipText()
