@@ -1,0 +1,2180 @@
+-- -----------------------------------------------------------------------------
+--  LuiExtended                                                               --
+--  Distributed under The MIT License (MIT) (see LICENSE file)                --
+-- -----------------------------------------------------------------------------
+
+--- @class (partial) LuiExtended
+local LUIE = LUIE
+
+-- SpellCastBuffs namespace
+--- @class (partial) LUIE.SpellCastBuffs
+local SpellCastBuffs = LUIE.SpellCastBuffs
+
+local UI = LUIE.UI
+local LuiData = LuiData
+--- @type Data
+local Data = LuiData.Data
+--- @type Effects
+local Effects = Data.Effects
+local Abilities = Data.Abilities
+local Tooltips = Data.Tooltips
+local string_format = string.format
+local printToChat = LUIE.PrintToChat
+local zo_strformat = zo_strformat
+local table_insert = table.insert
+local table_sort = table.sort
+-- local displayName = GetDisplayName()
+local eventManager = GetEventManager()
+local sceneManager = SCENE_MANAGER
+local windowManager = GetWindowManager()
+
+local moduleName = SpellCastBuffs.moduleName
+
+
+
+--- @param abilityId integer
+--- @return boolean
+function SpellCastBuffs.ShouldUseDefaultIcon(abilityId)
+    local effect = Effects.EffectOverride[abilityId]
+
+    -- Check if effect exists and has either cc or ccMergedType (with HideReduce enabled)
+    if not effect or (not effect.cc and not (SpellCastBuffs.SV.HideReduce and effect.ccMergedType)) then
+        return false
+    end
+
+    -- Option 1: Always use default icon for all cc effects
+    if SpellCastBuffs.SV.DefaultIconOptions == 1 then
+        return true
+
+        -- Options 2 and 3: Use default icon only for player ability cc effects
+    elseif SpellCastBuffs.SV.DefaultIconOptions == 2 or SpellCastBuffs.SV.DefaultIconOptions == 3 then
+        return effect.isPlayerAbility
+    end
+
+    return false
+end
+
+function SpellCastBuffs.GetDefaultIcon(ccType)
+    -- Mapping of action results to icons.
+    local iconMap =
+    {
+        [ACTION_RESULT_STUNNED] = LUIE_CC_ICON_STUN,
+        [ACTION_RESULT_KNOCKBACK] = LUIE_CC_ICON_KNOCKBACK,
+        [ACTION_RESULT_LEVITATED] = LUIE_CC_ICON_PULL,
+        [ACTION_RESULT_FEARED] = LUIE_CC_ICON_FEAR,
+        [ACTION_RESULT_CHARMED] = LUIE_CC_ICON_CHARM,
+        [ACTION_RESULT_DISORIENTED] = LUIE_CC_ICON_DISORIENT,
+        [ACTION_RESULT_SILENCED] = LUIE_CC_ICON_SILENCE,
+        [ACTION_RESULT_ROOTED] = LUIE_CC_ICON_ROOT,
+        [ACTION_RESULT_SNARED] = LUIE_CC_ICON_SNARE,
+        -- Group immune-type results
+        [ACTION_RESULT_IMMUNE] = LUIE_CC_ICON_IMMUNE,
+        [ACTION_RESULT_DODGED] = LUIE_CC_ICON_IMMUNE,
+        [ACTION_RESULT_BLOCKED] = LUIE_CC_ICON_IMMUNE,
+        [ACTION_RESULT_BLOCKED_DAMAGE] = LUIE_CC_ICON_IMMUNE,
+    }
+
+    return iconMap[ccType]
+end
+
+-- Specifically for clearing a player buff, removes this buff from player1, promd_player, and promb_player containers
+function SpellCastBuffs.ClearPlayerBuff(abilityId)
+    local context = { "player1", "promd_player", "promb_player" }
+    for _, v in pairs(context) do
+        SpellCastBuffs.EffectsList[v][abilityId] = nil
+    end
+end
+
+-- Initialize preview labels for all frames
+local function InitializePreviewLabels()
+    -- Callback to update coordinates while moving
+    local function OnMoveStart(self)
+        eventManager:RegisterForUpdate(moduleName .. "PreviewMove", 200, function ()
+            if self.preview and self.preview.anchorLabel then
+                self.preview.anchorLabel:SetText(string.format("%d, %d", self:GetLeft(), self:GetTop()))
+            end
+        end)
+    end
+
+    -- Callback to stop updating coordinates when movement ends
+    local function OnMoveStop(self)
+        eventManager:UnregisterForUpdate(moduleName .. "PreviewMove")
+    end
+
+    local frames =
+    {
+        { frame = SpellCastBuffs.BuffContainers.playerb,          name = "playerb"          },
+        { frame = SpellCastBuffs.BuffContainers.playerd,          name = "playerd"          },
+        { frame = SpellCastBuffs.BuffContainers.targetb,          name = "targetb"          },
+        { frame = SpellCastBuffs.BuffContainers.targetd,          name = "targetd"          },
+        { frame = SpellCastBuffs.BuffContainers.player_long,      name = "player_long"      },
+        { frame = SpellCastBuffs.BuffContainers.prominentbuffs,   name = "prominentbuffs"   },
+        { frame = SpellCastBuffs.BuffContainers.prominentdebuffs, name = "prominentdebuffs" }
+    }
+
+    for _, f in ipairs(frames) do
+        if f.frame then
+            -- Create preview container if it doesn't exist
+            if not f.frame.preview then
+                f.frame.preview = UI:Control(f.frame, "fill", nil, false)
+            end
+
+            -- Create texture and label for anchor preview
+            if not f.frame.preview.anchorTexture then
+                f.frame.preview.anchorTexture = UI:Texture(f.frame.preview, { TOPLEFT, TOPLEFT }, { 16, 16 }, "/esoui/art/reticle/border_topleft.dds", DL_OVERLAY, false)
+                f.frame.preview.anchorTexture:SetColor(1, 1, 0, 0.9)
+            end
+
+            if not f.frame.preview.anchorLabel then
+                f.frame.preview.anchorLabel = UI:Label(f.frame.preview, { BOTTOMLEFT, TOPLEFT, 0, -1 }, nil, { 0, 2 }, "ZoFontGameSmall", "xxx, yyy", false)
+                f.frame.preview.anchorLabel:SetColor(1, 1, 0, 1)
+                f.frame.preview.anchorLabel:SetDrawLayer(DL_OVERLAY)
+                f.frame.preview.anchorLabel:SetDrawTier(DT_MEDIUM)
+            end
+
+            if not f.frame.preview.anchorLabelBg then
+                f.frame.preview.anchorLabelBg = UI:Backdrop(f.frame.preview.anchorLabel, "fill", nil, { 0, 0, 0, 1 }, { 0, 0, 0, 1 }, false)
+                f.frame.preview.anchorLabelBg:SetDrawLayer(DL_OVERLAY)
+                f.frame.preview.anchorLabelBg:SetDrawTier(DT_LOW)
+            end
+
+            -- Add movement handlers
+            f.frame:SetHandler("OnMoveStart", OnMoveStart)
+            f.frame:SetHandler("OnMoveStop", OnMoveStop)
+        end
+    end
+end
+
+-- Flex container classification tables — defined here so Initialize can reference them.
+-- WRAP_CONTAINERS: multi-row containers whose iconHolder uses FLEX_WRAP_WRAP / WRAP_REVERSE.
+-- SINGLE_AXIS_CONTAINERS: single-line containers that never wrap.
+local WRAP_CONTAINERS =
+{
+    playerb = true,
+    playerd = true,
+    targetb = true,
+    targetd = true,
+    player1 = true,
+    player2 = true,
+    target1 = true,
+    target2 = true,
+}
+local SINGLE_AXIS_CONTAINERS =
+{
+    player_long = true, prominentbuffs = true, prominentdebuffs = true,
+}
+
+-- Returns creation-time width for a container: parent width > SV width > fallback.
+local function GetContainerInitWidth(containerKey)
+    local buffContainer = SpellCastBuffs.BuffContainers[containerKey]
+    local parentWidth = buffContainer and buffContainer:GetWidth()
+    if parentWidth and parentWidth > 0 then
+        return parentWidth
+    end
+    if containerKey == "playerb" then return SpellCastBuffs.SV.WidthPlayerBuffs end
+    if containerKey == "playerd" then return SpellCastBuffs.SV.WidthPlayerDebuffs end
+    if containerKey == "targetb" then return SpellCastBuffs.SV.WidthTargetBuffs end
+    if containerKey == "targetd" then return SpellCastBuffs.SV.WidthTargetDebuffs end
+    return 400
+end
+
+-- Creates a TopLevel, stores it in BuffContainers[containerKey], and sets OnMoveStop to saveCallback(self).
+local function CreateDraggableTopLevel(containerKey, saveCallback)
+    SpellCastBuffs.BuffContainers[containerKey] = UI:TopLevel(nil, nil)
+    SpellCastBuffs.BuffContainers[containerKey]:SetHandler("OnMoveStop", saveCallback)
+    return SpellCastBuffs.BuffContainers[containerKey]
+end
+
+-- Creates a HUD fade fragment for a container and appends it to the given fragments table.
+local function AddHudFragment(fragmentsTable, buffContainer)
+    table_insert(fragmentsTable, ZO_HUDFadeSceneFragment:New(buffContainer, 0, 0))
+end
+
+-- Adds all fragments to the relevant HUD/siege scenes.
+local function RegisterFragmentsToScenes(fragmentsTable)
+    for _, fragment in pairs(fragmentsTable) do
+        sceneManager:GetScene("hud"):AddFragment(fragment)
+        sceneManager:GetScene("hudui"):AddFragment(fragment)
+        sceneManager:GetScene("siegeBar"):AddFragment(fragment)
+        sceneManager:GetScene("siegeBarUI"):AddFragment(fragment)
+    end
+end
+
+-- Sets buffContainer.alignVertical from SV-style alignment value (1 = horizontal/false, 2 = vertical/true).
+local function SetContainerAlignVertical(buffContainer, alignmentSVValue)
+    if alignmentSVValue == 1 then
+        buffContainer.alignVertical = false
+    elseif alignmentSVValue == 2 then
+        buffContainer.alignVertical = true
+    end
+end
+
+-- Creates preview texture/label and iconHolder for a single container; sets draw layer/tier/level and icons table.
+local function InitializeContainerLayout(containerKey)
+    local buffContainer = SpellCastBuffs.BuffContainers[containerKey]
+    buffContainer:SetDrawLayer(DL_BACKGROUND)
+    buffContainer:SetDrawTier(DT_LOW)
+    buffContainer:SetDrawLevel(DL_CONTROLS)
+    if buffContainer.preview == nil then
+        buffContainer.preview = UI:Texture(buffContainer, "fill", nil, "/esoui/art/miscellaneous/inset_bg.dds", DL_BACKGROUND, true)
+        local lockedSuffix = (SpellCastBuffs.SV.lockPositionToUnitFrames and (containerKey ~= "player_long" and containerKey ~= "prominentbuffs" and containerKey ~= "prominentdebuffs") and " (locked)" or "")
+        buffContainer.previewLabel = UI:Label(buffContainer.preview, { CENTER, CENTER }, nil, nil, "ZoFontGameMedium", SpellCastBuffs.windowTitles[containerKey] .. lockedSuffix, false)
+    end
+    local isWrapContainer = WRAP_CONTAINERS[containerKey] == true
+    local initialFlexDirection = buffContainer.alignVertical and FLEX_DIRECTION_COLUMN or FLEX_DIRECTION_ROW
+    local flexWrapMode = isWrapContainer and FLEX_WRAP_WRAP or FLEX_WRAP_NO_WRAP
+    local iconSize = SpellCastBuffs.SV.IconSize
+    local initialWidth = GetContainerInitWidth(containerKey)
+    local initialHeight = isWrapContainer and (iconSize * 10) or (iconSize + 6)
+    buffContainer.iconHolder = UI:FlexControl(buffContainer, { TOPLEFT, TOPLEFT, 0, 0 }, { initialWidth, initialHeight }, false,
+                                              {
+                                                  container =
+                                                  {
+                                                      direction        = initialFlexDirection,
+                                                      wrap             = flexWrapMode,
+                                                      justification    = FLEX_JUSTIFICATION_FLEX_START,
+                                                      itemAlignment    = FLEX_ALIGNMENT_FLEX_START,
+                                                      contentAlignment = FLEX_ALIGNMENT_FLEX_START,
+                                                  }
+                                              })
+    buffContainer.icons = {}
+    if buffContainer:GetType() == CT_TOPLEVELCONTROL then
+        LUIE.Components[moduleName .. containerKey] = buffContainer
+    end
+end
+
+-- Initialization
+function SpellCastBuffs.Initialize(enabled)
+    -- Load settings
+    local isCharacterSpecific = LUIESV["Default"][GetDisplayName()]["$AccountWide"].CharacterSpecificSV
+    if isCharacterSpecific then
+        SpellCastBuffs.SV = ZO_SavedVars:New(LUIE.SVName, LUIE.SVVer, "SpellCastBuffs", SpellCastBuffs.Defaults)
+    else
+        SpellCastBuffs.SV = ZO_SavedVars:NewAccountWide(LUIE.SVName, LUIE.SVVer, "SpellCastBuffs", SpellCastBuffs.Defaults)
+    end
+
+    -- Migrate old string-based font styles to numeric constants (run once)
+    if not LUIE.IsMigrationDone("spellcastbuffs_fontstyles") then
+        SpellCastBuffs.SV.BuffFontStyle = LUIE.MigrateFontStyle(SpellCastBuffs.SV.BuffFontStyle)
+        SpellCastBuffs.SV.ProminentLabelFontStyle = LUIE.MigrateFontStyle(SpellCastBuffs.SV.ProminentLabelFontStyle)
+        LUIE.MarkMigrationDone("spellcastbuffs_fontstyles")
+    end
+
+    -- Correct read values
+    if SpellCastBuffs.SV.IconSize < 30 or SpellCastBuffs.SV.IconSize > 60 then
+        SpellCastBuffs.SV.IconSize = SpellCastBuffs.Defaults.IconSize
+    end
+
+    -- Disable module if setting not toggled on
+    if not enabled then
+        return
+    end
+    SpellCastBuffs.Enabled = true
+
+    -- Before we start creating controls, update icons font
+    SpellCastBuffs.ApplyFont()
+
+    -- Create controls
+    -- Create temporary table to store references to scenes locally
+    local fragments = {}
+
+    -- We will not create TopLevelWindows when buff frames are locked to Custom Unit Frames
+    if SpellCastBuffs.SV.lockPositionToUnitFrames and LUIE.UnitFrames.CustomFrames.player and LUIE.UnitFrames.CustomFrames.player.buffs and LUIE.UnitFrames.CustomFrames.player.debuffs then
+        SpellCastBuffs.BuffContainers.player1 = LUIE.UnitFrames.CustomFrames.player.buffs
+        SpellCastBuffs.BuffContainers.player2 = LUIE.UnitFrames.CustomFrames.player.debuffs
+        SpellCastBuffs.containerRouting.player1 = "player1"
+        SpellCastBuffs.containerRouting.player2 = "player2"
+    else
+        CreateDraggableTopLevel("playerb", function (self)
+            SpellCastBuffs.SV.playerbOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.playerbOffsetY = self:GetTop()
+        end)
+        CreateDraggableTopLevel("playerd", function (self)
+            SpellCastBuffs.SV.playerdOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.playerdOffsetY = self:GetTop()
+        end)
+        SpellCastBuffs.containerRouting.player1 = "playerb"
+        SpellCastBuffs.containerRouting.player2 = "playerd"
+
+        AddHudFragment(fragments, SpellCastBuffs.BuffContainers.playerb)
+        AddHudFragment(fragments, SpellCastBuffs.BuffContainers.playerd)
+    end
+
+    -- Create TopLevelWindows for buff frames when NOT locked to Custom Unit Frames
+    if SpellCastBuffs.SV.lockPositionToUnitFrames and LUIE.UnitFrames.CustomFrames.reticleover and LUIE.UnitFrames.CustomFrames.reticleover.buffs and LUIE.UnitFrames.CustomFrames.reticleover.debuffs then
+        SpellCastBuffs.BuffContainers.target1 = LUIE.UnitFrames.CustomFrames.reticleover.buffs
+        SpellCastBuffs.BuffContainers.target2 = LUIE.UnitFrames.CustomFrames.reticleover.debuffs
+        SpellCastBuffs.containerRouting.reticleover1 = "target1"
+        SpellCastBuffs.containerRouting.reticleover2 = "target2"
+        SpellCastBuffs.containerRouting.ground = "target2"
+    else
+        CreateDraggableTopLevel("targetb", function (self)
+            SpellCastBuffs.SV.targetbOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.targetbOffsetY = self:GetTop()
+        end)
+        CreateDraggableTopLevel("targetd", function (self)
+            SpellCastBuffs.SV.targetdOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.targetdOffsetY = self:GetTop()
+        end)
+        SpellCastBuffs.containerRouting.reticleover1 = "targetb"
+        SpellCastBuffs.containerRouting.reticleover2 = "targetd"
+        SpellCastBuffs.containerRouting.ground = "targetd"
+
+        AddHudFragment(fragments, SpellCastBuffs.BuffContainers.targetb)
+        AddHudFragment(fragments, SpellCastBuffs.BuffContainers.targetd)
+    end
+
+    -- Create TopLevelWindows for Prominent Buffs
+    CreateDraggableTopLevel("prominentbuffs", function (self)
+        if self.alignVertical then
+            SpellCastBuffs.SV.prominentbVOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentbVOffsetY = self:GetTop()
+        else
+            SpellCastBuffs.SV.prominentbHOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentbHOffsetY = self:GetTop()
+        end
+    end)
+    CreateDraggableTopLevel("prominentdebuffs", function (self)
+        if self.alignVertical then
+            SpellCastBuffs.SV.prominentdVOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentdVOffsetY = self:GetTop()
+        else
+            SpellCastBuffs.SV.prominentdHOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentdHOffsetY = self:GetTop()
+        end
+    end)
+
+    SetContainerAlignVertical(SpellCastBuffs.BuffContainers.prominentbuffs, SpellCastBuffs.SV.ProminentBuffContainerAlignment)
+    SetContainerAlignVertical(SpellCastBuffs.BuffContainers.prominentdebuffs, SpellCastBuffs.SV.ProminentDebuffContainerAlignment)
+
+    SpellCastBuffs.containerRouting.promb_ground = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promb_target = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promb_player = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promd_ground = "prominentdebuffs"
+    SpellCastBuffs.containerRouting.promd_target = "prominentdebuffs"
+    SpellCastBuffs.containerRouting.promd_player = "prominentdebuffs"
+
+    AddHudFragment(fragments, SpellCastBuffs.BuffContainers.prominentbuffs)
+    AddHudFragment(fragments, SpellCastBuffs.BuffContainers.prominentdebuffs)
+
+    -- Separate container for players long term buffs
+    CreateDraggableTopLevel("player_long", function (self)
+        local left, top = self:GetLeft(), self:GetTop()
+        if self.alignVertical then
+            SpellCastBuffs.SV.playerVOffsetX = left
+            SpellCastBuffs.SV.playerVOffsetY = top
+        else
+            SpellCastBuffs.SV.playerHOffsetX = left
+            SpellCastBuffs.SV.playerHOffsetY = top
+        end
+    end)
+
+    SetContainerAlignVertical(SpellCastBuffs.BuffContainers.player_long, SpellCastBuffs.SV.LongTermEffectsSeparateAlignment)
+
+    SpellCastBuffs.BuffContainers.player_long.skipUpdate = 0
+    SpellCastBuffs.containerRouting.player_long = "player_long"
+
+    AddHudFragment(fragments, SpellCastBuffs.BuffContainers.player_long)
+
+    -- Loop over table of fragments to add them to relevant UI Scenes
+    RegisterFragmentsToScenes(fragments)
+
+    -- Set Buff Container Positions
+    SpellCastBuffs.SetTlwPosition()
+
+    -- Initialize layout (draw layer, preview, iconHolder, icons) for each container
+    for _, routedContainerKey in pairs(SpellCastBuffs.containerRouting) do
+        InitializeContainerLayout(routedContainerKey)
+    end
+
+    SpellCastBuffs.Reset()
+    SpellCastBuffs.UpdateContextHideList()
+    SpellCastBuffs.UpdateDisplayOverrideIdList()
+
+    -- Register events
+    eventManager:RegisterForUpdate(moduleName, 100, SpellCastBuffs.OnUpdate)
+
+    -- Target Events
+    eventManager:RegisterForEvent(moduleName, EVENT_TARGET_CHANGED, SpellCastBuffs.OnTargetChange)
+    eventManager:RegisterForEvent(moduleName, EVENT_RETICLE_TARGET_CHANGED, SpellCastBuffs.OnReticleTargetChanged)
+    eventManager:RegisterForEvent(moduleName .. "Disposition", EVENT_DISPOSITION_UPDATE, SpellCastBuffs.OnDispositionUpdate)
+    eventManager:AddFilterForEvent(moduleName .. "Disposition", EVENT_DISPOSITION_UPDATE, REGISTER_FILTER_UNIT_TAG, "reticleover")
+
+    -- Buff Events
+    eventManager:RegisterForEvent(moduleName .. "Player", EVENT_EFFECT_CHANGED, SpellCastBuffs.OnEffectChanged)
+    eventManager:RegisterForEvent(moduleName .. "Target", EVENT_EFFECT_CHANGED, SpellCastBuffs.OnEffectChanged)
+    eventManager:AddFilterForEvent(moduleName .. "Player", EVENT_EFFECT_CHANGED, REGISTER_FILTER_UNIT_TAG, "player")
+    eventManager:AddFilterForEvent(moduleName .. "Target", EVENT_EFFECT_CHANGED, REGISTER_FILTER_UNIT_TAG, "reticleover")
+
+    -- GROUND & MINE EFFECTS - add a filtered event for each AbilityId
+    for k, v in pairs(Effects.EffectGroundDisplay) do
+        eventManager:RegisterForEvent(moduleName .. "Ground" .. tostring(k), EVENT_EFFECT_CHANGED, SpellCastBuffs.OnEffectChangedGround)
+        eventManager:AddFilterForEvent(moduleName .. "Ground" .. tostring(k), EVENT_EFFECT_CHANGED, REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_ABILITY_ID, k)
+    end
+    for k, v in pairs(Effects.LinkedGroundMine) do
+        eventManager:RegisterForEvent(moduleName .. "Ground" .. tostring(k), EVENT_EFFECT_CHANGED, SpellCastBuffs.OnEffectChangedGround)
+        eventManager:AddFilterForEvent(moduleName .. "Ground" .. tostring(k), EVENT_EFFECT_CHANGED, REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_ABILITY_ID, k)
+    end
+
+    -- Combat Events
+    eventManager:RegisterForEvent(moduleName .. "Event1", EVENT_COMBAT_EVENT, SpellCastBuffs.OnCombatEventIn)
+    eventManager:RegisterForEvent(moduleName .. "Event2", EVENT_COMBAT_EVENT, SpellCastBuffs.OnCombatEventOut)
+    eventManager:RegisterForEvent(moduleName .. "Event3", EVENT_COMBAT_EVENT, SpellCastBuffs.OnCombatEventOut)
+    eventManager:AddFilterForEvent(moduleName .. "Event1", EVENT_COMBAT_EVENT, REGISTER_FILTER_TARGET_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)     -- Target -> Player
+    eventManager:AddFilterForEvent(moduleName .. "Event2", EVENT_COMBAT_EVENT, REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER, REGISTER_FILTER_IS_ERROR, false)     -- Player -> Target
+    eventManager:AddFilterForEvent(moduleName .. "Event3", EVENT_COMBAT_EVENT, REGISTER_FILTER_SOURCE_COMBAT_UNIT_TYPE, COMBAT_UNIT_TYPE_PLAYER_PET, REGISTER_FILTER_IS_ERROR, false) -- Player Pet -> Target
+    for k, v in pairs(Effects.AddNameOnEvent) do
+        eventManager:RegisterForEvent(moduleName .. "Event4" .. tostring(k), EVENT_COMBAT_EVENT, SpellCastBuffs.OnCombatAddNameEvent)
+        eventManager:AddFilterForEvent(moduleName .. "Event4" .. tostring(k), EVENT_COMBAT_EVENT, REGISTER_FILTER_ABILITY_ID, k)
+    end
+    eventManager:RegisterForEvent(moduleName, EVENT_BOSSES_CHANGED, SpellCastBuffs.AddNameOnBossEngaged)
+
+    -- Stealth Events
+    eventManager:RegisterForEvent(moduleName .. "Player", EVENT_STEALTH_STATE_CHANGED, SpellCastBuffs.StealthStateChanged)
+    eventManager:RegisterForEvent(moduleName .. "Reticleover", EVENT_STEALTH_STATE_CHANGED, SpellCastBuffs.StealthStateChanged)
+    eventManager:AddFilterForEvent(moduleName .. "Player", EVENT_STEALTH_STATE_CHANGED, REGISTER_FILTER_UNIT_TAG, "player")
+    eventManager:AddFilterForEvent(moduleName .. "Reticleover", EVENT_STEALTH_STATE_CHANGED, REGISTER_FILTER_UNIT_TAG, "reticleover")
+
+    -- Disguise Events
+    eventManager:RegisterForEvent(moduleName .. "Player", EVENT_DISGUISE_STATE_CHANGED, SpellCastBuffs.DisguiseStateChanged)
+    eventManager:RegisterForEvent(moduleName .. "Reticleover", EVENT_DISGUISE_STATE_CHANGED, SpellCastBuffs.DisguiseStateChanged)
+    eventManager:AddFilterForEvent(moduleName .. "Player", EVENT_DISGUISE_STATE_CHANGED, REGISTER_FILTER_UNIT_TAG, "player")
+    eventManager:AddFilterForEvent(moduleName .. "Reticleover", EVENT_DISGUISE_STATE_CHANGED, REGISTER_FILTER_UNIT_TAG, "reticleover")
+
+    -- Artificial Effects Handling
+    eventManager:RegisterForEvent(moduleName, EVENT_ARTIFICIAL_EFFECT_ADDED, SpellCastBuffs.ArtificialEffectUpdate)
+    eventManager:RegisterForEvent(moduleName, EVENT_ARTIFICIAL_EFFECT_REMOVED, SpellCastBuffs.ArtificialEffectUpdate)
+
+    -- Activate/Deactivate Player, Player Dead/Alive, Vibration, and Unit Death
+    eventManager:RegisterForEvent(moduleName, EVENT_PLAYER_ACTIVATED, SpellCastBuffs.OnPlayerActivated)
+    eventManager:RegisterForEvent(moduleName, EVENT_PLAYER_DEACTIVATED, SpellCastBuffs.OnPlayerDeactivated)
+    eventManager:RegisterForEvent(moduleName, EVENT_PLAYER_ALIVE, SpellCastBuffs.OnPlayerAlive)
+    eventManager:RegisterForEvent(moduleName, EVENT_PLAYER_DEAD, SpellCastBuffs.OnPlayerDead)
+    eventManager:RegisterForEvent(moduleName, EVENT_VIBRATION, SpellCastBuffs.OnVibration)
+    eventManager:RegisterForEvent(moduleName, EVENT_UNIT_DEATH_STATE_CHANGED, SpellCastBuffs.OnDeath)
+
+    -- Mount Events
+    eventManager:RegisterForEvent(moduleName, EVENT_MOUNTED_STATE_CHANGED, SpellCastBuffs.MountStatus)
+    eventManager:RegisterForEvent(moduleName, EVENT_COLLECTIBLE_USE_RESULT, SpellCastBuffs.CollectibleUsed)
+
+    -- Inventory Events
+    eventManager:RegisterForEvent(moduleName, EVENT_INVENTORY_SINGLE_SLOT_UPDATE, SpellCastBuffs.DisguiseItem)
+    eventManager:AddFilterForEvent(moduleName, EVENT_INVENTORY_SINGLE_SLOT_UPDATE, REGISTER_FILTER_BAG_ID, BAG_WORN)
+
+    -- Duel (For resolving Target Battle Spirit Status)
+    eventManager:RegisterForEvent(moduleName, EVENT_DUEL_STARTED, SpellCastBuffs.DuelStart)
+    eventManager:RegisterForEvent(moduleName, EVENT_DUEL_FINISHED, SpellCastBuffs.DuelEnd)
+
+    -- Register event to update icons/names/tooltips for some abilities where we pull information from the currently learned morph
+    eventManager:RegisterForEvent(moduleName, EVENT_SKILLS_FULL_UPDATE, function (eventId)
+        -- Mages Guild
+        Effects.EffectOverride[40465].tooltip = zo_strformat(GetString(LUIE_STRING_SKILL_SCALDING_RUNE_TP), ((GetAbilityDuration(40468) or 0) / 1000) + GetNumPassiveSkillRanks(GetSkillLineIndicesFromSkillLineId(44), select(2, GetSkillLineIndicesFromSkillLineId(44)), 8))
+    end)
+
+    -- Werewolf
+    SpellCastBuffs.RegisterWerewolfEvents()
+
+    -- Debug
+    SpellCastBuffs.RegisterDebugEvents()
+
+    -- Variable adjustment if needed
+    if not LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsSCB then
+        LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsSCB = 0
+    end
+    if LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsSCB < 2 then
+        -- Set buff cc type colors
+        SpellCastBuffs.SV.colors.buff = SpellCastBuffs.Defaults.colors.buff
+        SpellCastBuffs.SV.colors.debuff = SpellCastBuffs.Defaults.colors.debuff
+        SpellCastBuffs.SV.colors.prioritybuff = SpellCastBuffs.Defaults.colors.prioritybuff
+        SpellCastBuffs.SV.colors.prioritydebuff = SpellCastBuffs.Defaults.colors.prioritydebuff
+        SpellCastBuffs.SV.colors.unbreakable = SpellCastBuffs.Defaults.colors.unbreakable
+        SpellCastBuffs.SV.colors.cosmetic = SpellCastBuffs.Defaults.colors.cosmetic
+        SpellCastBuffs.SV.colors.nocc = SpellCastBuffs.Defaults.colors.nocc
+        SpellCastBuffs.SV.colors.stun = SpellCastBuffs.Defaults.colors.stun
+        SpellCastBuffs.SV.colors.knockback = SpellCastBuffs.Defaults.colors.knockback
+        SpellCastBuffs.SV.colors.levitate = SpellCastBuffs.Defaults.colors.levitate
+        SpellCastBuffs.SV.colors.disorient = SpellCastBuffs.Defaults.colors.disorient
+        SpellCastBuffs.SV.colors.fear = SpellCastBuffs.Defaults.colors.fear
+        SpellCastBuffs.SV.colors.silence = SpellCastBuffs.Defaults.colors.silence
+        SpellCastBuffs.SV.colors.stagger = SpellCastBuffs.Defaults.colors.stagger
+        SpellCastBuffs.SV.colors.snare = SpellCastBuffs.Defaults.colors.snare
+        SpellCastBuffs.SV.colors.root = SpellCastBuffs.Defaults.colors.root
+    end
+    -- Increment so this doesn't occur again.
+    LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsSCB = 2
+
+    -- Initialize preview labels for all frames
+    InitializePreviewLabels()
+end
+
+function SpellCastBuffs.RegisterWerewolfEvents()
+    eventManager:UnregisterForEvent(moduleName, EVENT_POWER_UPDATE)
+    eventManager:UnregisterForUpdate(moduleName .. "WerewolfTicker")
+    eventManager:UnregisterForEvent(moduleName, EVENT_WEREWOLF_STATE_CHANGED)
+    if SpellCastBuffs.SV.ShowWerewolf then
+        eventManager:RegisterForEvent(moduleName, EVENT_WEREWOLF_STATE_CHANGED, SpellCastBuffs.WerewolfState)
+        if IsPlayerInWerewolfForm() then
+            SpellCastBuffs.WerewolfState(nil, true, true)
+        end
+    end
+end
+
+function SpellCastBuffs.RegisterDebugEvents()
+    -- Unregister existing events
+    eventManager:UnregisterForEvent(moduleName .. "DebugCombat", EVENT_COMBAT_EVENT)
+    -- Register standard debug events if enabled
+    if SpellCastBuffs.SV.ShowDebugCombat then
+        eventManager:RegisterForEvent(moduleName .. "DebugCombat", EVENT_COMBAT_EVENT, function (eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
+            SpellCastBuffs.EventCombatDebug(eventId, result, isError, abilityName, abilityGraphic, abilityActionSlotType, sourceName, sourceType, targetName, targetType, hitValue, powerType, damageType, log, sourceUnitId, targetUnitId, abilityId, overflow)
+        end)
+    end
+    eventManager:UnregisterForEvent(moduleName .. "DebugEffect", EVENT_EFFECT_CHANGED)
+    if SpellCastBuffs.SV.ShowDebugEffect then
+        eventManager:RegisterForEvent(moduleName .. "DebugEffect", EVENT_EFFECT_CHANGED, function (eventId, changeType, effectSlot, effectName, unitTag, beginTime, endTime, stackCount, iconName, deprecatedBuffType, effectType, abilityType, statusEffectType, unitName, unitId, abilityId, sourceType)
+            SpellCastBuffs.EventEffectDebug(eventId, changeType, effectSlot, effectName, unitTag, beginTime, endTime, stackCount, iconName, deprecatedBuffType, effectType, abilityType, statusEffectType, unitName, unitId, abilityId, sourceType)
+        end)
+    end
+
+    -- Author-specific debug events
+    if LUIE.IsDevDebugEnabled() then
+        eventManager:UnregisterForEvent(moduleName .. "AuthorDebugCombat", EVENT_COMBAT_EVENT)
+        if SpellCastBuffs.SV.ShowDebugCombat then
+            eventManager:RegisterForEvent(moduleName .. "AuthorDebugCombat", EVENT_COMBAT_EVENT, function (eventId, ...)
+                SpellCastBuffs.AuthorCombatDebug(eventId, ...)
+            end)
+        end
+        eventManager:UnregisterForEvent(moduleName .. "AuthorDebugEffect", EVENT_EFFECT_CHANGED)
+        if SpellCastBuffs.SV.ShowDebugEffect then
+            eventManager:RegisterForEvent(moduleName .. "AuthorDebugEffect", EVENT_EFFECT_CHANGED, function (eventId, changeType, effectSlot, effectName, unitTag, beginTime, endTime, stackCount, iconName, deprecatedBuffType, effectType, abilityType, statusEffectType, unitName, unitId, abilityId, sourceType)
+                SpellCastBuffs.AuthorEffectDebug(eventId, changeType, effectSlot, effectName, unitTag, beginTime, endTime, stackCount, iconName, deprecatedBuffType, effectType, abilityType, statusEffectType, unitName, unitId, abilityId, sourceType)
+            end)
+        end
+    end
+end
+
+function SpellCastBuffs.ResetContainerOrientation()
+    ---
+    --- @param self TopLevelWindow|table
+    local prominentbuffs_OnMoveStop = function (self)
+        if self.alignVertical then
+            SpellCastBuffs.SV.prominentbVOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentbVOffsetY = self:GetTop()
+        else
+            SpellCastBuffs.SV.prominentbHOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentbHOffsetY = self:GetTop()
+        end
+    end
+    -- Create TopLevelWindows for Prominent Buffs
+    SpellCastBuffs.BuffContainers.prominentbuffs:SetHandler("OnMoveStop", prominentbuffs_OnMoveStop)
+    ---
+    --- @param self TopLevelWindow|table
+    local prominentdebuffs_OnMoveStop = function (self)
+        if self.alignVertical then
+            SpellCastBuffs.SV.prominentdVOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentdVOffsetY = self:GetTop()
+        else
+            SpellCastBuffs.SV.prominentdHOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.prominentdHOffsetY = self:GetTop()
+        end
+    end
+    SpellCastBuffs.BuffContainers.prominentdebuffs:SetHandler("OnMoveStop", prominentdebuffs_OnMoveStop)
+
+    if SpellCastBuffs.SV.ProminentBuffContainerAlignment == 1 then
+        SpellCastBuffs.BuffContainers.prominentbuffs.alignVertical = false
+    elseif SpellCastBuffs.SV.ProminentBuffContainerAlignment == 2 then
+        SpellCastBuffs.BuffContainers.prominentbuffs.alignVertical = true
+    end
+    if SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 1 then
+        SpellCastBuffs.BuffContainers.prominentdebuffs.alignVertical = false
+    elseif SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 2 then
+        SpellCastBuffs.BuffContainers.prominentdebuffs.alignVertical = true
+    end
+
+    SpellCastBuffs.containerRouting.promb_ground = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promb_target = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promb_player = "prominentbuffs"
+    SpellCastBuffs.containerRouting.promd_ground = "prominentdebuffs"
+    SpellCastBuffs.containerRouting.promd_target = "prominentdebuffs"
+    SpellCastBuffs.containerRouting.promd_player = "prominentdebuffs"
+
+    ---
+    --- @param self TopLevelWindow|table
+    local player_long_OnMoveStop = function (self)
+        if self.alignVertical then
+            SpellCastBuffs.SV.playerVOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.playerVOffsetY = self:GetTop()
+        else
+            SpellCastBuffs.SV.playerHOffsetX = self:GetLeft()
+            SpellCastBuffs.SV.playerHOffsetY = self:GetTop()
+        end
+    end
+    -- Separate container for players long term buffs
+    SpellCastBuffs.BuffContainers.player_long:SetHandler("OnMoveStop", player_long_OnMoveStop)
+
+    if SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 1 then
+        SpellCastBuffs.BuffContainers.player_long.alignVertical = false
+    elseif SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 2 then
+        SpellCastBuffs.BuffContainers.player_long.alignVertical = true
+    end
+
+    SpellCastBuffs.BuffContainers.player_long.skipUpdate = 0
+    SpellCastBuffs.containerRouting.player_long = "player_long"
+
+    -- Set Buff Container Positions
+    SpellCastBuffs.SetTlwPosition()
+end
+
+-- Returns the appropriate FLEX_WRAP_* constant for a given container
+local function GetFlexWrap(containerKey)
+    if SINGLE_AXIS_CONTAINERS[containerKey] then
+        return FLEX_WRAP_NO_WRAP
+    end
+    if containerKey == "player1" or containerKey == "target1" then
+        return FLEX_WRAP_WRAP
+    end
+    if containerKey == "player2" or containerKey == "target2" then
+        return FLEX_WRAP_WRAP_REVERSE
+    end
+    local stackSV =
+    {
+        playerb = SpellCastBuffs.SV.StackPlayerBuffs,
+        playerd = SpellCastBuffs.SV.StackPlayerDebuffs,
+        targetb = SpellCastBuffs.SV.StackTargetBuffs,
+        targetd = SpellCastBuffs.SV.StackTargetDebuffs,
+    }
+    return (stackSV[containerKey] == "Down") and FLEX_WRAP_WRAP or FLEX_WRAP_WRAP_REVERSE
+end
+
+-- Maps the SV alignment string + the resolved flex direction to a FLEX_JUSTIFICATION_* constant.
+-- All alignment values are treated as PHYSICAL (left/right/center on screen), independent of
+-- whether the flex direction is reversed. This lets users combine any sort + alignment freely.
+--
+-- "Centered":
+--   Returns FLEX_CENTER for all container types. UnitFrames.lua explicitly calls SetWidth() on
+--   the buffs/debuffs containers so they span the full UF bar width and are horizontally centered
+--   below the frame. FLEX_CENTER then centers each row within that bar width, producing true
+--   visual centering. TLW containers are also user-width-sized; FLEX_CENTER clusters each row
+--   around the center of the user-set width. This matches the old anchor-to-center behavior
+--   where every row of icons started at the container's center point.
+--
+-- "Left"/"Top" and "Right"/"Bottom":
+--   Packs the group at the PHYSICAL left/right edge of the container.
+--   For reversed directions (ROW_REVERSE, COLUMN_REVERSE) the logical and physical ends are
+--   swapped, so the justification constant is inverted to maintain physical alignment.
+local function GetFlexJustification(containerKey, flexDir)
+    local dir = SpellCastBuffs.alignmentDirection[containerKey]
+
+    if dir == "Centered" then
+        return FLEX_JUSTIFICATION_CENTER
+    end
+
+    -- Physical end = "Right" or "Bottom". For reversed flex directions the logical end is on the
+    -- opposite physical side, so flip the flag to keep the result physically consistent.
+    local wantsPhysicalEnd = (dir == "Right" or dir == "Bottom")
+    local isReversed = (flexDir == FLEX_DIRECTION_ROW_REVERSE or flexDir == FLEX_DIRECTION_COLUMN_REVERSE)
+    if isReversed then wantsPhysicalEnd = not wantsPhysicalEnd end
+
+    return wantsPhysicalEnd and FLEX_JUSTIFICATION_FLEX_END or FLEX_JUSTIFICATION_FLEX_START
+end
+
+-- Applies current flex direction, wrap, and justification to a container's iconHolder.
+-- The iconHolder anchor is always TOPLEFT (set at creation, never changed here).
+-- flexDir is passed to GetFlexJustification so physical alignment can invert the constant
+-- for reversed directions (ROW_REVERSE, COLUMN_REVERSE) without an extra API round-trip.
+---
+--- @param containerKey string
+local function ApplyFlexContainerConfig(containerKey)
+    local bc = SpellCastBuffs.BuffContainers[containerKey]
+    if not bc or not bc.iconHolder then return end
+
+    local sortDir = SpellCastBuffs.sortDirection[containerKey]
+    local flexDir
+    if     sortDir == "Left to Right" then
+        flexDir = FLEX_DIRECTION_ROW
+    elseif sortDir == "Right to Left" then
+        flexDir = FLEX_DIRECTION_ROW_REVERSE
+    elseif sortDir == "Bottom to Top" then
+        flexDir = FLEX_DIRECTION_COLUMN_REVERSE
+    elseif sortDir == "Top to Bottom" then
+        flexDir = FLEX_DIRECTION_COLUMN
+    end
+
+    -- Fall back to the holder's current direction if sortDir is unrecognised.
+    local resolvedFlexDir = flexDir or bc.iconHolder:GetChildFlexDirection()
+
+    if flexDir then bc.iconHolder:SetChildFlexDirection(flexDir) end
+    bc.iconHolder:SetChildFlexWrap(GetFlexWrap(containerKey))
+    bc.iconHolder:SetChildFlexJustification(GetFlexJustification(containerKey, resolvedFlexDir))
+    -- Pack flex lines (rows/columns) at the cross-axis start.
+    -- For WRAP this means rows are packed at the TOP; for WRAP_REVERSE the cross-axis is reversed
+    -- so FLEX_START == physical BOTTOM, which is exactly where debuff rows should anchor.
+    -- For single-axis containers this is a no-op (there is only one line).
+    bc.iconHolder:SetChildFlexContentAlignment(FLEX_ALIGNMENT_FLEX_START)
+end
+
+-- Populate SpellCastBuffs.alignmentDirection from SV settings.
+-- Values are kept as the SV strings ("Left", "Right", "Centered", "Top", "Bottom")
+-- and consumed directly by GetFlexJustification — no translation to anchor constants needed.
+-- Called from Settings Menu and on Initialize.
+function SpellCastBuffs.SetupContainerAlignment()
+    SpellCastBuffs.alignmentDirection = {}
+
+    SpellCastBuffs.alignmentDirection.player1 = SpellCastBuffs.SV.AlignmentBuffsPlayer
+    SpellCastBuffs.alignmentDirection.playerb = SpellCastBuffs.SV.AlignmentBuffsPlayer
+    SpellCastBuffs.alignmentDirection.player2 = SpellCastBuffs.SV.AlignmentDebuffsPlayer
+    SpellCastBuffs.alignmentDirection.playerd = SpellCastBuffs.SV.AlignmentDebuffsPlayer
+    SpellCastBuffs.alignmentDirection.target1 = SpellCastBuffs.SV.AlignmentBuffsTarget
+    SpellCastBuffs.alignmentDirection.targetb = SpellCastBuffs.SV.AlignmentBuffsTarget
+    SpellCastBuffs.alignmentDirection.target2 = SpellCastBuffs.SV.AlignmentDebuffsTarget
+    SpellCastBuffs.alignmentDirection.targetd = SpellCastBuffs.SV.AlignmentDebuffsTarget
+
+    if SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 1 then
+        SpellCastBuffs.alignmentDirection.player_long = SpellCastBuffs.SV.AlignmentLongHorz
+    elseif SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 2 then
+        SpellCastBuffs.alignmentDirection.player_long = SpellCastBuffs.SV.AlignmentLongVert
+    end
+
+    if SpellCastBuffs.SV.ProminentBuffContainerAlignment == 1 then
+        SpellCastBuffs.alignmentDirection.prominentbuffs = SpellCastBuffs.SV.AlignmentPromBuffsHorz
+    elseif SpellCastBuffs.SV.ProminentBuffContainerAlignment == 2 then
+        SpellCastBuffs.alignmentDirection.prominentbuffs = SpellCastBuffs.SV.AlignmentPromBuffsVert
+    end
+
+    if SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 1 then
+        SpellCastBuffs.alignmentDirection.prominentdebuffs = SpellCastBuffs.SV.AlignmentPromDebuffsHorz
+    elseif SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 2 then
+        SpellCastBuffs.alignmentDirection.prominentdebuffs = SpellCastBuffs.SV.AlignmentPromDebuffsVert
+    end
+
+    for k, v in pairs(SpellCastBuffs.containerRouting) do
+        local bc = SpellCastBuffs.BuffContainers[v]
+        if bc and bc.iconHolder then
+            ApplyFlexContainerConfig(v)
+        end
+    end
+end
+
+-- Set SpellCastBuffs.sortDirection table to equal the values from our SV table. Called from Settings Menu & on Initialize
+function SpellCastBuffs.SetupContainerSort()
+    -- Clear the sort direction table
+    ZO_ClearTable(SpellCastBuffs.sortDirection)
+
+    -- Set sort order for player/target containers
+    SpellCastBuffs.sortDirection.player1 = SpellCastBuffs.SV.SortBuffsPlayer
+    SpellCastBuffs.sortDirection.playerb = SpellCastBuffs.SV.SortBuffsPlayer
+    SpellCastBuffs.sortDirection.player2 = SpellCastBuffs.SV.SortDebuffsPlayer
+    SpellCastBuffs.sortDirection.playerd = SpellCastBuffs.SV.SortDebuffsPlayer
+    SpellCastBuffs.sortDirection.target1 = SpellCastBuffs.SV.SortBuffsTarget
+    SpellCastBuffs.sortDirection.targetb = SpellCastBuffs.SV.SortBuffsTarget
+    SpellCastBuffs.sortDirection.target2 = SpellCastBuffs.SV.SortDebuffsTarget
+    SpellCastBuffs.sortDirection.targetd = SpellCastBuffs.SV.SortDebuffsTarget
+
+    -- Set Long Term Effects Sort Order
+    if SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 1 then
+        -- Horizontal
+        SpellCastBuffs.sortDirection.player_long = SpellCastBuffs.SV.SortLongHorz
+    elseif SpellCastBuffs.SV.LongTermEffectsSeparateAlignment == 2 then
+        -- Vertical
+        SpellCastBuffs.sortDirection.player_long = SpellCastBuffs.SV.SortLongVert
+    end
+
+    -- Set Prominent Buffs Sort Order
+    if SpellCastBuffs.SV.ProminentBuffContainerAlignment == 1 then
+        -- Horizontal
+        SpellCastBuffs.sortDirection.prominentbuffs = SpellCastBuffs.SV.SortPromBuffsHorz
+    elseif SpellCastBuffs.SV.ProminentBuffContainerAlignment == 2 then
+        -- Vertical
+        SpellCastBuffs.sortDirection.prominentbuffs = SpellCastBuffs.SV.SortPromBuffsVert
+    end
+
+    -- Set Prominent Debuffs Sort Order
+    if SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 1 then
+        -- Horizontal
+        SpellCastBuffs.sortDirection.prominentdebuffs = SpellCastBuffs.SV.SortPromDebuffsHorz
+    elseif SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 2 then
+        -- Vertical
+        SpellCastBuffs.sortDirection.prominentdebuffs = SpellCastBuffs.SV.SortPromDebuffsVert
+    end
+
+    for k, v in pairs(SpellCastBuffs.containerRouting) do
+        ApplyFlexContainerConfig(v)
+    end
+end
+
+-- Reset position of windows. Called from Settings Menu.
+function SpellCastBuffs.ResetTlwPosition()
+    if not SpellCastBuffs.Enabled then
+        return
+    end
+    SpellCastBuffs.SV.playerbOffsetX = nil
+    SpellCastBuffs.SV.playerbOffsetY = nil
+    SpellCastBuffs.SV.playerdOffsetX = nil
+    SpellCastBuffs.SV.playerdOffsetY = nil
+    SpellCastBuffs.SV.targetbOffsetX = nil
+    SpellCastBuffs.SV.targetbOffsetY = nil
+    SpellCastBuffs.SV.targetdOffsetX = nil
+    SpellCastBuffs.SV.targetdOffsetY = nil
+    SpellCastBuffs.SV.playerVOffsetX = nil
+    SpellCastBuffs.SV.playerVOffsetY = nil
+    SpellCastBuffs.SV.playerHOffsetX = nil
+    SpellCastBuffs.SV.playerHOffsetY = nil
+    SpellCastBuffs.SV.prominentbVOffsetX = nil
+    SpellCastBuffs.SV.prominentbVOffsetY = nil
+    SpellCastBuffs.SV.prominentbHOffsetX = nil
+    SpellCastBuffs.SV.prominentbHOffsetY = nil
+    SpellCastBuffs.SV.prominentdVOffsetX = nil
+    SpellCastBuffs.SV.prominentdVOffsetY = nil
+    SpellCastBuffs.SV.prominentdHOffsetX = nil
+    SpellCastBuffs.SV.prominentdHOffsetY = nil
+    SpellCastBuffs.SetTlwPosition()
+end
+
+-- Cached account-wide lookup for grid snap (evaluated at call time).
+local function IsSnapToGridBuffsEnabled()
+    return LUIESV["Default"][GetDisplayName()]["$AccountWide"].snapToGrid_buffs
+end
+
+-- Applies saved or default position to a TLW. If savedX/savedY are present, optionally snaps and anchors TOPLEFT to GuiRoot; otherwise uses default anchor.
+local function ApplySimpleTlwPosition(container, savedX, savedY, defaultPoint, defaultOwner, defaultOwnerPoint, defaultOffsetX, defaultOffsetY)
+    container:ClearAnchors()
+    if savedX ~= nil and savedY ~= nil then
+        local positionX, positionY = savedX, savedY
+        if IsSnapToGridBuffsEnabled() then
+            positionX, positionY = LUIE.ApplyGridSnap(positionX, positionY, "buffs")
+        end
+        container:SetAnchor(TOPLEFT, GuiRoot, TOPLEFT, positionX, positionY)
+    else
+        container:SetAnchor(defaultPoint, defaultOwner, defaultOwnerPoint, defaultOffsetX, defaultOffsetY)
+    end
+end
+
+-- Default anchor descriptor for dual-alignment containers.
+local function DefaultAnchor(point, owner, ownerPoint, offsetX, offsetY)
+    return { point = point, owner = owner, ownerPoint = ownerPoint, offsetX = offsetX, offsetY = offsetY }
+end
+
+-- Applies saved or default position for containers with vertical/horizontal alignment. Picks saved coords and default anchor from container.alignVertical.
+local function ApplyDualAlignmentTlwPosition(container, savedVX, savedVY, savedHX, savedHY, defaultVerticalAnchor, defaultHorizontalAnchor)
+    container:ClearAnchors()
+    local savedX, savedY, defaultAnchor
+    if container.alignVertical then
+        savedX, savedY = savedVX, savedVY
+        defaultAnchor = defaultVerticalAnchor
+    else
+        savedX, savedY = savedHX, savedHY
+        defaultAnchor = defaultHorizontalAnchor
+    end
+    if savedX ~= nil and savedY ~= nil then
+        local positionX, positionY = savedX, savedY
+        if IsSnapToGridBuffsEnabled() then
+            positionX, positionY = LUIE.ApplyGridSnap(positionX, positionY, "buffs")
+        end
+        container:SetAnchor(TOPLEFT, GuiRoot, TOPLEFT, positionX, positionY)
+    else
+        container:SetAnchor(defaultAnchor.point, defaultAnchor.owner, defaultAnchor.ownerPoint, defaultAnchor.offsetX, defaultAnchor.offsetY)
+    end
+end
+
+-- Set position of windows. Called from .Initialize() and .ResetTlwPosition()
+function SpellCastBuffs.SetTlwPosition()
+    -- If icons are locked to custom frames, BuffContainers are CT_CONTROLs on UnitFrames; otherwise they are CT_TOPLEVELCONTROLs — only position TLWs.
+    local lockToUnitFrames = SpellCastBuffs.SV.lockPositionToUnitFrames
+    local useSavedPosition = (lockToUnitFrames == nil or not lockToUnitFrames)
+
+    if SpellCastBuffs.BuffContainers.playerb and SpellCastBuffs.BuffContainers.playerb:GetType() == CT_TOPLEVELCONTROL then
+        ApplySimpleTlwPosition(
+            SpellCastBuffs.BuffContainers.playerb,
+            useSavedPosition and SpellCastBuffs.SV.playerbOffsetX or nil,
+            useSavedPosition and SpellCastBuffs.SV.playerbOffsetY or nil,
+            BOTTOM, ZO_PlayerAttributeHealth, TOP, 0, -10
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.playerd and SpellCastBuffs.BuffContainers.playerd:GetType() == CT_TOPLEVELCONTROL then
+        ApplySimpleTlwPosition(
+            SpellCastBuffs.BuffContainers.playerd,
+            useSavedPosition and SpellCastBuffs.SV.playerdOffsetX or nil,
+            useSavedPosition and SpellCastBuffs.SV.playerdOffsetY or nil,
+            BOTTOM, ZO_PlayerAttributeHealth, TOP, 0, -60
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.targetb and SpellCastBuffs.BuffContainers.targetb:GetType() == CT_TOPLEVELCONTROL then
+        ApplySimpleTlwPosition(
+            SpellCastBuffs.BuffContainers.targetb,
+            useSavedPosition and SpellCastBuffs.SV.targetbOffsetX or nil,
+            useSavedPosition and SpellCastBuffs.SV.targetbOffsetY or nil,
+            TOP, ZO_TargetUnitFramereticleover, BOTTOM, 0, 60
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.targetd and SpellCastBuffs.BuffContainers.targetd:GetType() == CT_TOPLEVELCONTROL then
+        ApplySimpleTlwPosition(
+            SpellCastBuffs.BuffContainers.targetd,
+            useSavedPosition and SpellCastBuffs.SV.targetdOffsetX or nil,
+            useSavedPosition and SpellCastBuffs.SV.targetdOffsetY or nil,
+            TOP, ZO_TargetUnitFramereticleover, BOTTOM, 0, 110
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.player_long then
+        ApplyDualAlignmentTlwPosition(
+            SpellCastBuffs.BuffContainers.player_long,
+            SpellCastBuffs.SV.playerVOffsetX, SpellCastBuffs.SV.playerVOffsetY,
+            SpellCastBuffs.SV.playerHOffsetX, SpellCastBuffs.SV.playerHOffsetY,
+            DefaultAnchor(BOTTOMRIGHT, GuiRoot, BOTTOMRIGHT, -3, -75),
+            DefaultAnchor(BOTTOM, ZO_PlayerAttributeHealth, TOP, 0, -70)
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.prominentbuffs then
+        ApplyDualAlignmentTlwPosition(
+            SpellCastBuffs.BuffContainers.prominentbuffs,
+            SpellCastBuffs.SV.prominentbVOffsetX, SpellCastBuffs.SV.prominentbVOffsetY,
+            SpellCastBuffs.SV.prominentbHOffsetX, SpellCastBuffs.SV.prominentbHOffsetY,
+            DefaultAnchor(CENTER, GuiRoot, CENTER, -340, -100),
+            DefaultAnchor(CENTER, GuiRoot, CENTER, -340, -100)
+        )
+    end
+
+    if SpellCastBuffs.BuffContainers.prominentdebuffs then
+        ApplyDualAlignmentTlwPosition(
+            SpellCastBuffs.BuffContainers.prominentdebuffs,
+            SpellCastBuffs.SV.prominentdVOffsetX, SpellCastBuffs.SV.prominentdVOffsetY,
+            SpellCastBuffs.SV.prominentdHOffsetX, SpellCastBuffs.SV.prominentdHOffsetY,
+            DefaultAnchor(CENTER, GuiRoot, CENTER, 340, -100),
+            DefaultAnchor(CENTER, GuiRoot, CENTER, 340, -100)
+        )
+    end
+end
+
+-- Unlock windows for moving. Called from Settings Menu.
+function SpellCastBuffs.SetMovingState(state)
+    if not SpellCastBuffs.Enabled then
+        return
+    end
+
+    local function UpdatePositionLabel(control, label)
+        if state and label then
+            local left, top = control:GetLeft(), control:GetTop()
+            label:SetText(string.format("%d, %d", left, top))
+            label:SetHidden(false)
+            label:ClearAnchors()
+            label:SetAnchor(TOPLEFT, control.preview, TOPLEFT, 2, 2)
+        elseif label then
+            label:SetHidden(true)
+        end
+    end
+
+    -- Applies moving state and OnMoveStop (snap + save) to a container. saveCallback(control, left, top) writes to SV.
+    local function SetContainerMovingState(container, saveCallback)
+        container:SetMouseEnabled(state)
+        container:SetMovable(state)
+        UpdatePositionLabel(container, container.preview and container.preview.anchorLabel)
+        container:SetHandler("OnMoveStop", function (self)
+            local left, top = self:GetLeft(), self:GetTop()
+            if IsSnapToGridBuffsEnabled() then
+                left, top = LUIE.ApplyGridSnap(left, top, "buffs")
+                self:ClearAnchors()
+                self:SetAnchor(TOPLEFT, GuiRoot, TOPLEFT, left, top)
+            end
+            saveCallback(self, left, top)
+        end)
+    end
+
+    local lockToUnitFrames = SpellCastBuffs.SV.lockPositionToUnitFrames
+    local canMoveStandalone = (lockToUnitFrames == nil or not lockToUnitFrames)
+
+    if SpellCastBuffs.BuffContainers.playerb and SpellCastBuffs.BuffContainers.playerb:GetType() == CT_TOPLEVELCONTROL and canMoveStandalone then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.playerb, function (_, left, top)
+            SpellCastBuffs.SV.playerbOffsetX = left
+            SpellCastBuffs.SV.playerbOffsetY = top
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.playerd and SpellCastBuffs.BuffContainers.playerd:GetType() == CT_TOPLEVELCONTROL and canMoveStandalone then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.playerd, function (_, left, top)
+            SpellCastBuffs.SV.playerdOffsetX = left
+            SpellCastBuffs.SV.playerdOffsetY = top
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.targetb and SpellCastBuffs.BuffContainers.targetb:GetType() == CT_TOPLEVELCONTROL and canMoveStandalone then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.targetb, function (_, left, top)
+            SpellCastBuffs.SV.targetbOffsetX = left
+            SpellCastBuffs.SV.targetbOffsetY = top
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.targetd and SpellCastBuffs.BuffContainers.targetd:GetType() == CT_TOPLEVELCONTROL and canMoveStandalone then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.targetd, function (_, left, top)
+            SpellCastBuffs.SV.targetdOffsetX = left
+            SpellCastBuffs.SV.targetdOffsetY = top
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.player_long then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.player_long, function (self, left, top)
+            if self.alignVertical then
+                SpellCastBuffs.SV.playerVOffsetX = left
+                SpellCastBuffs.SV.playerVOffsetY = top
+            else
+                SpellCastBuffs.SV.playerHOffsetX = left
+                SpellCastBuffs.SV.playerHOffsetY = top
+            end
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.prominentbuffs then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.prominentbuffs, function (self, left, top)
+            if self.alignVertical then
+                SpellCastBuffs.SV.prominentbVOffsetX = left
+                SpellCastBuffs.SV.prominentbVOffsetY = top
+            else
+                SpellCastBuffs.SV.prominentbHOffsetX = left
+                SpellCastBuffs.SV.prominentbHOffsetY = top
+            end
+        end)
+    end
+
+    if SpellCastBuffs.BuffContainers.prominentdebuffs then
+        SetContainerMovingState(SpellCastBuffs.BuffContainers.prominentdebuffs, function (self, left, top)
+            if self.alignVertical then
+                SpellCastBuffs.SV.prominentdVOffsetX = left
+                SpellCastBuffs.SV.prominentdVOffsetY = top
+            else
+                SpellCastBuffs.SV.prominentdHOffsetX = left
+                SpellCastBuffs.SV.prominentdHOffsetY = top
+            end
+        end)
+    end
+
+    for _, routedContainerKey in pairs(SpellCastBuffs.containerRouting) do
+        SpellCastBuffs.BuffContainers[routedContainerKey].preview:SetHidden(not state)
+    end
+
+    if state then
+        SpellCastBuffs.MenuPreview()
+    else
+        SpellCastBuffs.Reset()
+    end
+end
+
+-- Sets dimensions on two TLW wrap containers and their iconHolders (player or target standalone).
+local function SetTlwWrapContainerDimensions(containerA, containerB, widthA, widthB, wrapHeight)
+    containerA:SetDimensions(widthA, wrapHeight)
+    containerB:SetDimensions(widthB, wrapHeight)
+    if containerA.iconHolder then containerA.iconHolder:SetDimensions(widthA, wrapHeight) end
+    if containerB.iconHolder then containerB.iconHolder:SetDimensions(widthB, wrapHeight) end
+end
+
+-- Sets height and iconHolder dimensions on two unit-frame containers (width from control).
+local function SetUnitFrameContainerDimensions(containerA, containerB, iconHeight)
+    containerA:SetHeight(iconHeight)
+    containerB:SetHeight(iconHeight)
+    if containerA.iconHolder then containerA.iconHolder:SetDimensions(containerA:GetWidth(), iconHeight) end
+    if containerB.iconHolder then containerB.iconHolder:SetDimensions(containerB:GetWidth(), iconHeight) end
+end
+
+-- Single-axis container (player_long, prominent): vertical = narrow×tall, horizontal = wide×short.
+local function SetSingleAxisContainerDimensions(container, alignVertical, iconSize)
+    local width, height
+    if alignVertical then
+        width, height = iconSize + 6, 400
+    else
+        width, height = 500, iconSize + 6
+    end
+    container:SetDimensions(width, height)
+    if container.iconHolder then container.iconHolder:SetDimensions(width, height) end
+end
+
+-- Reset all buff containers
+function SpellCastBuffs.Reset()
+    if not SpellCastBuffs.Enabled then
+        return
+    end
+
+    SpellCastBuffs.padding = zo_floor(0.5 + SpellCastBuffs.SV.IconSize / 13)
+
+    local wrapHeight = SpellCastBuffs.SV.IconSize
+    local iconSize = SpellCastBuffs.SV.IconSize
+    local buffContainers = SpellCastBuffs.BuffContainers
+
+    -- Player
+    if buffContainers.playerb and buffContainers.playerb:GetType() == CT_TOPLEVELCONTROL then
+        SetTlwWrapContainerDimensions(buffContainers.playerb, buffContainers.playerd, SpellCastBuffs.SV.WidthPlayerBuffs, SpellCastBuffs.SV.WidthPlayerDebuffs, wrapHeight)
+    else
+        SetUnitFrameContainerDimensions(buffContainers.player1, buffContainers.player2, iconSize)
+    end
+
+    -- Target
+    if buffContainers.targetb and buffContainers.targetb:GetType() == CT_TOPLEVELCONTROL then
+        SetTlwWrapContainerDimensions(buffContainers.targetb, buffContainers.targetd, SpellCastBuffs.SV.WidthTargetBuffs, SpellCastBuffs.SV.WidthTargetDebuffs, wrapHeight)
+    else
+        SetUnitFrameContainerDimensions(buffContainers.target1, buffContainers.target2, iconSize)
+    end
+
+    -- Player long-term buffs
+    if buffContainers.player_long then
+        SetSingleAxisContainerDimensions(buffContainers.player_long, buffContainers.player_long.alignVertical, iconSize)
+    end
+
+    -- Prominent buffs & debuffs
+    if buffContainers.prominentbuffs then
+        SetSingleAxisContainerDimensions(buffContainers.prominentbuffs, buffContainers.prominentbuffs.alignVertical, iconSize)
+        SetSingleAxisContainerDimensions(buffContainers.prominentdebuffs, buffContainers.prominentdebuffs.alignVertical, iconSize)
+    end
+
+    SpellCastBuffs.SetupContainerAlignment()
+    SpellCastBuffs.SetupContainerSort()
+
+    for _, routedContainerKey in pairs(SpellCastBuffs.containerRouting) do
+        local container = buffContainers[routedContainerKey]
+        for iconIndex = 1, #container.icons do
+            SpellCastBuffs.ResetSingleIcon(routedContainerKey, container.icons[iconIndex])
+        end
+    end
+
+    if SpellCastBuffs.playerActive then
+        SpellCastBuffs.ReloadEffects("player")
+    end
+end
+
+-- Applies the correct flex margins to a single buff icon.
+-- Must be called AFTER SetExcludeFromFlexbox(false) so margins are set on a live Yoga node.
+-- Called from both ResetSingleIcon (full reset) and updateIcons (every re-show).
+--
+-- Uses explicit PHYSICAL edges (not FLEX_EDGE_END/START) because ESO's Yoga implementation
+-- does not appear to resolve logical edges by flex direction for SetFlexMargin — FLEX_EDGE_END
+-- maps to a fixed constant that works for ROW but silently applies the wrong physical edge
+-- for COLUMN layouts, resulting in zero vertical gap between stacked icons.
+--
+-- Main-axis trailing physical edge per direction:
+--   ROW            → RIGHT   (gap appears to the right of each icon)
+--   ROW_REVERSE    → LEFT    (gap appears to the left of each icon)
+--   COLUMN         → BOTTOM  (gap appears below each icon)
+--   COLUMN_REVERSE → TOP     (gap appears above each icon, flow goes bottom→top)
+--
+-- Cross-axis gutter uses one-sided margin so inter-row gap = exactly padding (not 2×padding).
+-- Vertical single-axis columns use iconSize/4 for gap so labels stay readable at any size.
+function SpellCastBuffs.ApplyIconFlexMargin(container, buff)
+    local holder = SpellCastBuffs.BuffContainers[container].iconHolder
+    local flexDir = holder and holder:GetChildFlexDirection()
+    local flexWrap = holder and holder:GetChildFlexWrap()
+    local isWrap = WRAP_CONTAINERS[container]
+    local isRow = (flexDir == FLEX_DIRECTION_ROW or flexDir == FLEX_DIRECTION_ROW_REVERSE)
+    local isWrapReverse = (flexWrap == FLEX_WRAP_WRAP_REVERSE)
+    local gap = (not isWrap and not isRow)
+        and zo_floor(SpellCastBuffs.SV.IconSize / 10)
+        or SpellCastBuffs.padding
+
+    -- Resolve the physical trailing edge for the current flex direction.
+    local trailingEdge
+    if     flexDir == FLEX_DIRECTION_ROW then
+        trailingEdge = FLEX_EDGE_RIGHT
+    elseif flexDir == FLEX_DIRECTION_ROW_REVERSE then
+        trailingEdge = FLEX_EDGE_LEFT
+    elseif flexDir == FLEX_DIRECTION_COLUMN then
+        trailingEdge = FLEX_EDGE_BOTTOM
+    elseif flexDir == FLEX_DIRECTION_COLUMN_REVERSE then
+        trailingEdge = FLEX_EDGE_TOP
+    else
+        trailingEdge = FLEX_EDGE_RIGHT
+    end
+
+    buff:SetFlexMargins(0, 0, 0, 0)
+    buff:SetFlexMargin(trailingEdge, gap)
+    if isWrap then
+        if isRow then
+            buff:SetFlexMargin(isWrapReverse and FLEX_EDGE_TOP or FLEX_EDGE_BOTTOM, SpellCastBuffs.padding)
+        else
+            buff:SetFlexMargin(isWrapReverse and FLEX_EDGE_LEFT or FLEX_EDGE_RIGHT, SpellCastBuffs.padding)
+        end
+    end
+end
+
+-- Reset only a single icon
+function SpellCastBuffs.ResetSingleIcon(container, buff)
+    local buffSize = SpellCastBuffs.SV.IconSize
+    local frameSize = 2 * buffSize + 4
+
+    buff:SetHidden(true)
+    -- buff:SetAlpha( 1 )
+    buff:SetDimensions(buffSize, buffSize)
+    buff.frame:SetDimensions(frameSize, frameSize)
+    buff.back:SetHidden(SpellCastBuffs.SV.GlowIcons)
+    buff.frame:SetHidden(not SpellCastBuffs.SV.GlowIcons)
+    buff.label:SetAnchor(TOPLEFT, buff, LEFT, -SpellCastBuffs.padding, -SpellCastBuffs.SV.LabelPosition)
+    buff.label:SetAnchor(BOTTOMRIGHT, buff, BOTTOMRIGHT, SpellCastBuffs.padding, -2)
+    buff.label:SetHidden(not SpellCastBuffs.SV.RemainingText)
+    buff.stack:SetAnchor(CENTER, buff, BOTTOMLEFT, 0, 0)
+    buff.stack:SetAnchor(CENTER, buff, TOPRIGHT, -SpellCastBuffs.padding * 3, SpellCastBuffs.padding * 3)
+    buff.stack:SetHidden(true)
+
+    if buff.name ~= nil then
+        if (container == "prominentbuffs" and SpellCastBuffs.SV.ProminentBuffContainerAlignment == 2) or (container == "prominentdebuffs" and SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 2) then
+            -- Vertical
+            buff.name:SetHidden(not SpellCastBuffs.SV.ProminentLabel)
+        else
+            buff.name:SetHidden(true)
+        end
+    end
+
+    if buff.bar ~= nil then
+        if (container == "prominentbuffs" and SpellCastBuffs.SV.ProminentBuffContainerAlignment == 2) or (container == "prominentdebuffs" and SpellCastBuffs.SV.ProminentDebuffContainerAlignment == 2) then
+            -- Vertical
+            buff.bar.backdrop:SetHidden(not SpellCastBuffs.SV.ProminentProgress)
+            buff.bar.bar:SetHidden(not SpellCastBuffs.SV.ProminentProgress)
+        else
+            buff.bar.backdrop:SetHidden(true)
+            buff.bar.bar:SetHidden(true)
+        end
+    end
+
+    if buff.cd ~= nil then
+        buff.cd:SetHidden(not SpellCastBuffs.SV.RemainingCooldown)
+        -- We do not need black icon background when there is no Cooldown control present
+        buff.iconbg:SetHidden(not SpellCastBuffs.SV.RemainingCooldown)
+    end
+
+    if buff.abilityId ~= nil then
+        buff.abilityId:SetHidden(not SpellCastBuffs.SV.ShowDebugAbilityId)
+    end
+
+    local inset = (SpellCastBuffs.SV.RemainingCooldown and buff.cd ~= nil) and 3 or 1
+
+    buff.drop:ClearAnchors()
+    buff.drop:SetAnchor(TOPLEFT, buff, TOPLEFT, inset, inset)
+    buff.drop:SetAnchor(BOTTOMRIGHT, buff, BOTTOMRIGHT, -inset, -inset)
+
+    buff.icon:ClearAnchors()
+    buff.icon:SetAnchor(TOPLEFT, buff, TOPLEFT, inset, inset)
+    buff.icon:SetAnchor(BOTTOMRIGHT, buff, BOTTOMRIGHT, -inset, -inset)
+    if buff.iconbg ~= nil then
+        buff.iconbg:ClearAnchors()
+        buff.iconbg:SetAnchor(TOPLEFT, buff, TOPLEFT, inset, inset)
+        buff.iconbg:SetAnchor(BOTTOMRIGHT, buff, BOTTOMRIGHT, -inset, -inset)
+    end
+
+    if container == "prominentbuffs" then
+        if SpellCastBuffs.SV.ProminentBuffLabelDirection == "Left" then
+            buff.name:ClearAnchors()
+            buff.name:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+            buff.name:SetAnchor(TOPRIGHT, buff, TOPLEFT, -4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+
+            buff.bar.backdrop:ClearAnchors()
+            buff.bar.backdrop:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, 0)
+            buff.bar.backdrop:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, 0)
+
+            buff.bar.bar:SetTexture(LUIE.StatusbarTextures[SpellCastBuffs.SV.ProminentProgressTexture])
+            buff.bar.bar:SetBarAlignment(BAR_ALIGNMENT_REVERSE)
+            buff.bar.bar:ClearAnchors()
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+        else
+            buff.name:ClearAnchors()
+            buff.name:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+            buff.name:SetAnchor(TOPLEFT, buff, TOPRIGHT, 4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+
+            buff.bar.backdrop:ClearAnchors()
+            buff.bar.backdrop:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, 0)
+            buff.bar.backdrop:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, 0)
+
+            buff.bar.bar:SetTexture(LUIE.StatusbarTextures[SpellCastBuffs.SV.ProminentProgressTexture])
+            buff.bar.bar:SetBarAlignment(BAR_ALIGNMENT_NORMAL)
+            buff.bar.bar:ClearAnchors()
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+        end
+    end
+
+    if container == "prominentdebuffs" then
+        if SpellCastBuffs.SV.ProminentDebuffLabelDirection == "Right" then
+            buff.name:ClearAnchors()
+            buff.name:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+            buff.name:SetAnchor(TOPLEFT, buff, TOPRIGHT, 4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+
+            buff.bar.backdrop:ClearAnchors()
+            buff.bar.backdrop:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, 0)
+            buff.bar.backdrop:SetAnchor(BOTTOMLEFT, buff, BOTTOMRIGHT, 4, 0)
+
+            buff.bar.bar:SetTexture(LUIE.StatusbarTextures[SpellCastBuffs.SV.ProminentProgressTexture])
+            buff.bar.bar:SetBarAlignment(BAR_ALIGNMENT_NORMAL)
+            buff.bar.bar:ClearAnchors()
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+        else
+            buff.name:ClearAnchors()
+            buff.name:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+            buff.name:SetAnchor(TOPRIGHT, buff, TOPLEFT, -4, -(SpellCastBuffs.SV.IconSize * 0.25) + 2)
+
+            buff.bar.backdrop:ClearAnchors()
+            buff.bar.backdrop:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, 0)
+            buff.bar.backdrop:SetAnchor(BOTTOMRIGHT, buff, BOTTOMLEFT, -4, 0)
+
+            buff.bar.bar:SetTexture(LUIE.StatusbarTextures[SpellCastBuffs.SV.ProminentProgressTexture])
+            buff.bar.bar:SetBarAlignment(BAR_ALIGNMENT_REVERSE)
+            buff.bar.bar:ClearAnchors()
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+            buff.bar.bar:SetAnchor(CENTER, buff.bar.backdrop, CENTER, 0, 0)
+        end
+    end
+
+    SpellCastBuffs.ApplyIconFlexMargin(container, buff)
+end
+
+-- Right Click Cancel Buff function
+function SpellCastBuffs.Buff_OnMouseUp(self, button, upInside)
+    if upInside and button == MOUSE_BUTTON_INDEX_RIGHT then
+        ClearMenu()
+        local id, name = self.effectId, self.effectName
+
+        -- Blacklist
+        local blacklist = SpellCastBuffs.SV.BlacklistTable
+        local isBlacklisted = blacklist[id] or blacklist[name]
+        AddMenuItem(isBlacklisted and "Remove from Blacklist" or "Add to Blacklist", function ()
+            if isBlacklisted then
+                SpellCastBuffs.RemoveFromCustomList(blacklist, id)
+                SpellCastBuffs.RemoveFromCustomList(blacklist, name)
+            else
+                SpellCastBuffs.AddToCustomList(blacklist, id)
+                SpellCastBuffs.AddToCustomList(blacklist, name)
+            end
+        end)
+
+        -- Prominent Buffs
+        local promBuffs = SpellCastBuffs.SV.PromBuffTable
+        local isPromBuff = promBuffs[id] or promBuffs[name]
+        AddMenuItem(isPromBuff and "Remove from Prominent Buffs" or "Add to Prominent Buffs", function ()
+            if isPromBuff then
+                SpellCastBuffs.RemoveFromCustomList(promBuffs, id)
+                SpellCastBuffs.RemoveFromCustomList(promBuffs, name)
+            else
+                SpellCastBuffs.AddToCustomList(promBuffs, id)
+                SpellCastBuffs.AddToCustomList(promBuffs, name)
+            end
+        end)
+
+        -- Prominent Debuffs
+        local promDebuffs = SpellCastBuffs.SV.PromDebuffTable
+        local isPromDebuff = promDebuffs[id] or promDebuffs[name]
+        AddMenuItem(isPromDebuff and "Remove from Prominent Debuffs" or "Add to Prominent Debuffs", function ()
+            if isPromDebuff then
+                SpellCastBuffs.RemoveFromCustomList(promDebuffs, id)
+                SpellCastBuffs.RemoveFromCustomList(promDebuffs, name)
+            else
+                SpellCastBuffs.AddToCustomList(promDebuffs, id)
+                SpellCastBuffs.AddToCustomList(promDebuffs, name)
+            end
+        end)
+
+        -- Cancel Buff (if possible)
+        if self.buffSlot then
+            AddMenuItem("Cancel Buff", function ()
+                CancelBuff(self.buffSlot)
+            end)
+        end
+        ShowMenu(self)
+    end
+end
+
+local function ClearStickyTooltip()
+    ClearTooltip(GameTooltip)
+    eventManager:UnregisterForUpdate(moduleName .. "StickyTooltip")
+end
+
+local buffTypes =
+{
+    [LUIE_BUFF_TYPE_BUFF] = GetString(LUIE_STRING_BUFF_TYPE_BUFF),
+    [LUIE_BUFF_TYPE_DEBUFF] = GetString(LUIE_STRING_BUFF_TYPE_DEBUFF),
+    [LUIE_BUFF_TYPE_UB_BUFF] = GetString(LUIE_STRING_BUFF_TYPE_UB_BUFF),
+    [LUIE_BUFF_TYPE_UB_DEBUFF] = GetString(LUIE_STRING_BUFF_TYPE_UB_DEBUFF),
+    [LUIE_BUFF_TYPE_GROUND_BUFF_TRACKER] = GetString(LUIE_STRING_BUFF_TYPE_GROUND_BUFF_TRACKER),
+    [LUIE_BUFF_TYPE_GROUND_DEBUFF_TRACKER] = GetString(LUIE_STRING_BUFF_TYPE_GROUND_DEBUFF_TRACKER),
+    [LUIE_BUFF_TYPE_GROUND_AOE_BUFF] = GetString(LUIE_STRING_BUFF_TYPE_GROUND_AOE_BUFF),
+    [LUIE_BUFF_TYPE_GROUND_AOE_DEBUFF] = GetString(LUIE_STRING_BUFF_TYPE_GROUND_AOE_DEBUFF),
+    [LUIE_BUFF_TYPE_ENVIRONMENT_BUFF] = GetString(LUIE_STRING_BUFF_TYPE_ENVIRONMENT_BUFF),
+    [LUIE_BUFF_TYPE_ENVIRONMENT_DEBUFF] = GetString(LUIE_STRING_BUFF_TYPE_ENVIRONMENT_DEBUFF),
+    [LUIE_BUFF_TYPE_NONE] = GetString(LUIE_STRING_BUFF_TYPE_NONE),
+}
+
+function SpellCastBuffs.TooltipBottomLine(control, detailsLine, artificial)
+    -- Add bottom divider and info if present:
+    if SpellCastBuffs.SV.TooltipAbilityId or SpellCastBuffs.SV.TooltipBuffType then
+        ZO_Tooltip_AddDivider(GameTooltip)
+        GameTooltip:SetVerticalPadding(4)
+        GameTooltip:AddLine("", "", ZO_NORMAL_TEXT:UnpackRGB())
+        -- Add Ability ID Line
+        if SpellCastBuffs.SV.TooltipAbilityId then
+            local labelAbilityId = control.effectId or "None"
+            local isArtificial = labelAbilityId == "Fake" and true or artificial
+            if isArtificial then
+                labelAbilityId = "Artificial"
+            end
+            GameTooltip:AddHeaderLine("Ability ID", "ZoFontWinT1", detailsLine, TOOLTIP_HEADER_SIDE_LEFT, ZO_NORMAL_TEXT:UnpackRGB())
+            GameTooltip:AddHeaderLine(labelAbilityId, "ZoFontWinT1", detailsLine, TOOLTIP_HEADER_SIDE_RIGHT, 1, 1, 1)
+            detailsLine = detailsLine + 1
+        end
+
+        -- Add Buff Type Line
+        if SpellCastBuffs.SV.TooltipBuffType then
+            local buffType = control.buffType or LUIE_BUFF_TYPE_NONE
+            local effectId = control.effectId
+            if effectId and Effects.EffectOverride[effectId] and Effects.EffectOverride[effectId].unbreakable then
+                buffType = buffType + 2
+            end
+
+            -- Setup tooltips for player aoe trackers
+            if effectId and Effects.EffectGroundDisplay[effectId] then
+                buffType = buffType + 4
+            end
+
+            -- Setup tooltips for ground buff/debuff effects
+            if effectId and (Effects.AddGroundDamageAura[effectId] or (Effects.EffectOverride[effectId] and Effects.EffectOverride[effectId].groundLabel)) then
+                buffType = buffType + 6
+            end
+
+            -- Setup tooltips for Fake Player Offline Auras
+            if effectId and Effects.FakePlayerOfflineAura[effectId] then
+                if Effects.FakePlayerOfflineAura[effectId].ground then
+                    buffType = 6
+                else
+                    buffType = 5
+                end
+            end
+
+            GameTooltip:AddHeaderLine("Type", "ZoFontWinT1", detailsLine, TOOLTIP_HEADER_SIDE_LEFT, ZO_NORMAL_TEXT:UnpackRGB())
+            GameTooltip:AddHeaderLine(buffTypes[buffType], "ZoFontWinT1", detailsLine, TOOLTIP_HEADER_SIDE_RIGHT, 1, 1, 1)
+            detailsLine = detailsLine + 1
+        end
+    end
+end
+
+-- OnMouseEnter for Buff Tooltips
+function SpellCastBuffs.Buff_OnMouseEnter(control)
+    eventManager:UnregisterForUpdate(moduleName .. "StickyTooltip")
+
+    InitializeTooltip(GameTooltip, control, BOTTOM, 0, -5, TOP)
+    -- Setup Text
+    local tooltipText = ""
+    local detailsLine
+    local colorText = ZO_NORMAL_TEXT
+    local tooltipTitle = zo_strformat(SI_ABILITY_TOOLTIP_NAME, control.effectName)
+    if control.isArtificial then
+        tooltipText = GetArtificialEffectTooltipText(control.effectId)
+        GameTooltip:AddLine(tooltipTitle, "ZoFontHeader2", 1, 1, 1, nil)
+        detailsLine = 3
+        if SpellCastBuffs.SV.TooltipEnable then
+            GameTooltip:SetVerticalPadding(1)
+            ZO_Tooltip_AddDivider(GameTooltip)
+            GameTooltip:SetVerticalPadding(5)
+            GameTooltip:AddLine(tooltipText, "", colorText:UnpackRGBA())
+            detailsLine = 5
+        end
+        SpellCastBuffs.TooltipBottomLine(control, detailsLine, true)
+    else
+        if not SpellCastBuffs.SV.TooltipEnable then
+            GameTooltip:AddLine(tooltipTitle, "ZoFontHeader2", 1, 1, 1, nil)
+            detailsLine = 3
+            SpellCastBuffs.TooltipBottomLine(control, detailsLine)
+            return
+        end
+
+        if control.tooltip then
+            tooltipText = control.tooltip
+        else
+            local duration
+            if type(control.effectId) == "number" then
+                duration = control.duration / 1000
+                local value2
+                local value3
+                if Effects.EffectOverride[control.effectId] then
+                    if Effects.EffectOverride[control.effectId].tooltipValue2 then
+                        value2 = Effects.EffectOverride[control.effectId].tooltipValue2
+                    elseif Effects.EffectOverride[control.effectId].tooltipValue2Mod then
+                        value2 = zo_floor(duration + Effects.EffectOverride[control.effectId].tooltipValue2Mod + 0.5)
+                    elseif Effects.EffectOverride[control.effectId].tooltipValue2Id then
+                        value2 = zo_floor((GetAbilityDuration(Effects.EffectOverride[control.effectId].tooltipValue2Id, nil, "player" or nil) or 0) + 0.5) / 1000
+                    else
+                        value2 = 0
+                    end
+                else
+                    value2 = 0
+                end
+                if Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].tooltipValue3 then
+                    value3 = Effects.EffectOverride[control.effectId].tooltipValue3
+                else
+                    value3 = 0
+                end
+                duration = zo_floor((duration * 10) + 0.5) / 10
+
+                tooltipText = (Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].tooltip) and zo_strformat(Effects.EffectOverride[control.effectId].tooltip, duration, value2, value3) or ""
+
+                -- If there is a special tooltip to use for targets only, then set this now
+                local containerContext = control.container
+                if containerContext == "target1" or containerContext == "target2" or containerContext == "targetb" or containerContext == "targetd" or containerContext == "promb_target" or containerContext == "promd_target" then
+                    if Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].tooltipOther then
+                        tooltipText = zo_strformat(Effects.EffectOverride[control.effectId].tooltipOther, duration, value2, value3)
+                    end
+                end
+
+                -- Use separate Veteran difficulty tooltip if applicable.
+                if LUIE.ResolveVeteranDifficulty() == true and Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].tooltipVet then
+                    tooltipText = zo_strformat(Effects.EffectOverride[control.effectId].tooltipVet, duration, value2, value3)
+                end
+                -- Use separate Ground tooltip if applicable (only applies to buffs not debuffs)
+                if Effects.EffectGroundDisplay[control.effectId] and Effects.EffectGroundDisplay[control.effectId].tooltip and control.buffType == BUFF_EFFECT_TYPE_BUFF then
+                    tooltipText = zo_strformat(Effects.EffectGroundDisplay[control.effectId].tooltip, duration, value2, value3)
+                end
+
+                -- Display Default Tooltip Description if no custom tooltip is present
+                if tooltipText == "" or tooltipText == nil then
+                    if GetAbilityEffectDescription(control.buffSlot) ~= "" then
+                        tooltipText = GetAbilityEffectDescription(control.buffSlot)
+                    end
+                end
+
+                -- Display Default Description if no internal effect description is present
+                if tooltipText == "" or tooltipText == nil then
+                    if GetAbilityDescription(control.effectId, nil, "player" or nil) ~= "" then
+                        tooltipText = GetAbilityDescription(control.effectId, nil, "player" or nil)
+                    end
+                end
+
+                -- Dynamic Tooltip if present
+                if Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].dynamicTooltip then
+                    tooltipText = LUIE.DynamicTooltip(control.effectId) or tooltipText -- Fallback to original tooltipText if nil
+                end
+            else
+                duration = 0
+            end
+        end
+
+        if Effects.TooltipUseDefault[control.effectId] then
+            if GetAbilityEffectDescription(control.buffSlot) ~= "" then
+                tooltipText = GetAbilityEffectDescription(control.buffSlot)
+                tooltipText = LUIE.UpdateMundusTooltipSyntax(control.effectId, tooltipText)
+            end
+        end
+
+        -- Set the Tooltip to be default if custom tooltips aren't enabled
+        if not LUIE.SpellCastBuffs.SV.TooltipCustom then
+            tooltipText = GetAbilityEffectDescription(control.buffSlot)
+            tooltipText = StringOnlyGSUB(tooltipText, "\n$", "") -- Remove blank end line
+        end
+
+        local thirdLine
+        local duration = control.duration / 1000
+
+        if Effects.EffectOverride[control.effectId] and Effects.EffectOverride[control.effectId].duration then
+            duration = duration + Effects.EffectOverride[control.effectId].duration
+        end
+
+        -- if Effects.TooltipNameOverride[control.effectName] then
+        --     thirdLine = zo_strformat(Effects.TooltipNameOverride[control.effectName], duration)
+        -- end
+        -- if Effects.TooltipNameOverride[control.effectId] then
+        --     thirdLine = zo_strformat(Effects.TooltipNameOverride[control.effectId], duration)
+        -- end
+
+        -- Have to trim trailing spaces on the end of tooltips
+        if tooltipText ~= "" then
+            tooltipText = string.match(tooltipText, ".*%S")
+        end
+        if thirdLine ~= "" and thirdLine ~= nil then
+            colorText = control.buffType == BUFF_EFFECT_TYPE_DEBUFF and ZO_ERROR_COLOR or ZO_SUCCEEDED_TEXT
+        end
+
+        detailsLine = 5
+
+        GameTooltip:AddLine(tooltipTitle, "ZoFontHeader2", 1, 1, 1, nil)
+        if tooltipText ~= "" and tooltipText ~= nil then
+            GameTooltip:SetVerticalPadding(1)
+            ZO_Tooltip_AddDivider(GameTooltip)
+            GameTooltip:SetVerticalPadding(5)
+            GameTooltip:AddLine(tooltipText, "", colorText:UnpackRGBA())
+        end
+        if thirdLine ~= "" and thirdLine ~= nil then
+            if tooltipText == "" or tooltipText == nil then
+                GameTooltip:SetVerticalPadding(1)
+                ZO_Tooltip_AddDivider(GameTooltip)
+                GameTooltip:SetVerticalPadding(5)
+            end
+            detailsLine = 7
+            GameTooltip:AddLine(thirdLine, "", ZO_NORMAL_TEXT:UnpackRGB())
+        end
+
+        SpellCastBuffs.TooltipBottomLine(control, detailsLine)
+
+        -- Tooltip Debug
+        -- GameTooltip:SetAbilityId(117391)
+
+        -- Debug show default Tooltip on my account
+        -- if LUIE.PlayerDisplayName == "@ArtOfShred" or LUIE.PlayerDisplayName == "@ArtOfShredPTS" --[[or LUIE.PlayerDisplayName == '@dack_janiels']] then
+        if LUIE.IsDevDebugEnabled() then
+            GameTooltip:AddLine("Default Tooltip Below:", "", colorText:UnpackRGBA())
+
+            local newtooltipText
+
+            if GetAbilityEffectDescription(control.buffSlot) ~= "" then
+                newtooltipText = GetAbilityEffectDescription(control.buffSlot)
+            end
+            if newtooltipText ~= "" and newtooltipText ~= nil then
+                GameTooltip:SetVerticalPadding(1)
+                ZO_Tooltip_AddDivider(GameTooltip)
+                GameTooltip:SetVerticalPadding(5)
+                GameTooltip:AddLine(newtooltipText, "", colorText:UnpackRGBA())
+            end
+        end
+    end
+end
+
+-- OnMouseExit for Buff Tooltips
+function SpellCastBuffs.Buff_OnMouseExit(control)
+    if SpellCastBuffs.SV.TooltipSticky > 0 then
+        eventManager:RegisterForUpdate(moduleName .. "StickyTooltip", SpellCastBuffs.SV.TooltipSticky, ClearStickyTooltip)
+    else
+        ClearTooltip(GameTooltip)
+    end
+end
+
+-- Updates local variable with new font and resets all existing icons
+function SpellCastBuffs.ApplyFont()
+    if not SpellCastBuffs.Enabled then
+        return
+    end
+
+    -- Font setup for standard Buffs & Debuffs
+    local fontName = LUIE.Fonts[SpellCastBuffs.SV.BuffFontFace]
+    if not fontName or fontName == "" then
+        LUIE:Log("Debug", GetString(LUIE_STRING_ERROR_FONT))
+        fontName = "LUIE Default Font"
+    end
+    local fontStyle = SpellCastBuffs.SV.BuffFontStyle
+    local fontSize = (SpellCastBuffs.SV.BuffFontSize and SpellCastBuffs.SV.BuffFontSize > 0) and SpellCastBuffs.SV.BuffFontSize or 17
+    SpellCastBuffs.buffsFont = ZO_CreateFontString(fontName, fontSize, fontStyle)
+
+    -- Font Setup for Prominent Buffs & Debuffs
+    local prominentName = LUIE.Fonts[SpellCastBuffs.SV.ProminentLabelFontFace]
+    if not prominentName or prominentName == "" then
+        LUIE:Log("Debug", GetString(LUIE_STRING_ERROR_FONT))
+        prominentName = "LUIE Default Font"
+    end
+    local prominentStyle = SpellCastBuffs.SV.ProminentLabelFontStyle
+    local prominentSize = (SpellCastBuffs.SV.ProminentLabelFontSize and SpellCastBuffs.SV.ProminentLabelFontSize > 0) and SpellCastBuffs.SV.ProminentLabelFontSize or 17
+    SpellCastBuffs.prominentFont = ZO_CreateFontString(prominentName, prominentSize, prominentStyle)
+
+    local needs_reset = {}
+    -- And reset sizes of already existing icons
+    for _, container in pairs(SpellCastBuffs.containerRouting) do
+        needs_reset[container] = true
+    end
+    for _, container in pairs(SpellCastBuffs.containerRouting) do
+        if needs_reset[container] then
+            for i = 1, #SpellCastBuffs.BuffContainers[container].icons do
+                -- Set label font
+                SpellCastBuffs.BuffContainers[container].icons[i].label:SetFont(SpellCastBuffs.buffsFont)
+                -- Set prominent buff label font
+                if SpellCastBuffs.BuffContainers[container].icons[i].name then
+                    SpellCastBuffs.BuffContainers[container].icons[i].name:SetFont(SpellCastBuffs.prominentFont)
+                end
+            end
+        end
+        needs_reset[container] = false
+    end
+end
+
+-- Constants for artificial effect types
+local ARTIFICIAL_EFFECTS =
+{
+    ESO_PLUS = 0,
+    BATTLE_SPIRIT = 1,
+    BATTLE_SPIRIT_IC = 2,
+    BG_DESERTER = 3
+}
+
+-- Configuration for special effect durations
+local EFFECT_DURATIONS =
+{
+    [ARTIFICIAL_EFFECTS.BG_DESERTER] =
+    {
+        duration = 300000,
+        effectType = BUFF_EFFECT_TYPE_BUFF
+    }
+}
+
+-- Handles Battle Spirit effect ID conversion and tooltip assignment
+local function handleBattleSpiritEffectId(activeEffectId)
+    local tooltip = nil
+    local artificial = true
+    local effectId = activeEffectId
+
+    -- Handle different effect types
+    if activeEffectId == ARTIFICIAL_EFFECTS.ESO_PLUS then
+        tooltip = Tooltips.Innate_ESO_Plus
+    elseif activeEffectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT then
+        tooltip = Tooltips.Innate_Battle_Spirit
+        effectId = 999014
+        artificial = false
+    elseif activeEffectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT_IC then
+        tooltip = Tooltips.Innate_Battle_Spirit_Imperial_City
+        effectId = 999014
+        artificial = false
+    end
+
+    return effectId, tooltip, artificial
+end
+
+-- Handles removal of artificial effects
+local function handleEffectRemoval(effectId)
+    local removeEffect = effectId
+    if effectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT or effectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT_IC then
+        removeEffect = 999014
+    end
+
+    local displayName = GetDisplayName()
+    local context = SpellCastBuffs.DetermineContextSimple("player1", removeEffect, displayName)
+    SpellCastBuffs.EffectsList[context][removeEffect] = nil
+end
+
+-- Creates effect data structure
+local function createEffectData(effectId, displayName, iconFile, effectType, startTime, endTime, duration, tooltip, artificial)
+    return
+    {
+        target = SpellCastBuffs.DetermineTarget("player1"),
+        type = effectType,
+        id = effectId,
+        name = displayName,
+        icon = iconFile,
+        tooltip = tooltip,
+        dur = duration,
+        starts = startTime,
+        ends = endTime,
+        forced = "long",
+        restart = true,
+        iconNum = 0,
+        artificial = artificial,
+    }
+end
+
+-- Handles BG deserter specific logic
+local function handleBGDeserterEffect(startTime)
+    local duration = EFFECT_DURATIONS[ARTIFICIAL_EFFECTS.BG_DESERTER].duration
+    local endTime = startTime + (GetLFGCooldownTimeRemainingSeconds(LFG_COOLDOWN_BATTLEGROUND_DESERTED_QUEUE) * 1000)
+    return duration, endTime, EFFECT_DURATIONS[ARTIFICIAL_EFFECTS.BG_DESERTER].effectType
+end
+
+-- Main function for handling artificial effects
+function SpellCastBuffs.ArtificialEffectUpdate(eventCode, effectId)
+    -- Early exit if player buffs are hidden
+    if SpellCastBuffs.SV.HidePlayerBuffs then
+        return
+    end
+
+    -- Handle effect removal if effectId is provided
+    if effectId then
+        handleEffectRemoval(effectId)
+    end
+
+    -- Process active artificial effects
+    for activeEffectId in ZO_GetNextActiveArtificialEffectIdIter do
+        -- Skip if effect should be ignored based on settings
+        if (activeEffectId == ARTIFICIAL_EFFECTS.ESO_PLUS and SpellCastBuffs.SV.IgnoreEsoPlusPlayer) or
+        ((activeEffectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT or activeEffectId == ARTIFICIAL_EFFECTS.BATTLE_SPIRIT_IC) and
+            SpellCastBuffs.SV.IgnoreBattleSpiritPlayer) then
+            return
+        end
+
+        -- Get effect info
+        local displayName, iconFile, effectType, _, startTime = GetArtificialEffectInfo(activeEffectId)
+        local duration = 0
+        local endTime = nil
+
+        -- Handle BG deserter specific case
+        if activeEffectId == ARTIFICIAL_EFFECTS.BG_DESERTER then
+            duration, endTime, effectType = handleBGDeserterEffect(startTime)
+        end
+
+        local tooltip, artificial
+        -- Process effects and get tooltips
+        effectId, tooltip, artificial = handleBattleSpiritEffectId(activeEffectId)
+
+        -- Create and store effect
+        local context = SpellCastBuffs.DetermineContextSimple("player1", effectId, displayName)
+        SpellCastBuffs.EffectsList[context][effectId] = createEffectData(
+            effectId, displayName, iconFile, effectType, startTime,
+            endTime, duration, tooltip, artificial
+        )
+    end
+end
+
+-- EVENT_BOSSES_CHANGED handler
+function SpellCastBuffs.AddNameOnBossEngaged(eventCode)
+    -- Clear any names we've added this way
+    for k, _ in pairs(Effects.AddNameOnBossEngaged) do
+        for name, _ in pairs(Effects.AddNameOnBossEngaged[k]) do
+            if Effects.AddNameAura[name] then
+                Effects.AddNameAura[name] = nil
+            end
+        end
+    end
+
+    -- Check for bosses and add name auras when engaged.
+    for i = BOSS_RANK_ITERATION_BEGIN, BOSS_RANK_ITERATION_END do
+        local unitTag = "boss" .. i
+        local bossName = DoesUnitExist(unitTag) and zo_strformat(LUIE_UPPER_CASE_NAME_FORMATTER, GetUnitName(unitTag)) or ""
+        if Effects.AddNameOnBossEngaged[bossName] then
+            for k, v in pairs(Effects.AddNameOnBossEngaged[bossName]) do
+                Effects.AddNameAura[k] = {}
+                Effects.AddNameAura[k][1] = {}
+                Effects.AddNameAura[k][1].id = v
+            end
+        end
+    end
+
+    -- Reload Effects on current target
+    if not SpellCastBuffs.SV.HideTargetBuffs then
+        SpellCastBuffs.AddNameAura()
+    end
+end
+
+-- Called from EVENT_PLAYER_ACTIVATED
+function SpellCastBuffs.AddZoneBuffs()
+    local zoneId = GetZoneId(GetCurrentMapZoneIndex())
+    if Effects.ZoneBuffs[zoneId] then
+        local abilityId = Effects.ZoneBuffs[zoneId]
+        local abilityName = GetAbilityName(abilityId)
+        local abilityIcon = GetAbilityIcon(abilityId)
+        local beginTime = GetFrameTimeMilliseconds()
+        local stack
+        local groundLabel
+        local toggle
+
+        local context = SpellCastBuffs.DetermineContextSimple("player1", abilityId, abilityName)
+        SpellCastBuffs.EffectsList.player1[abilityId] =
+        {
+            target = SpellCastBuffs.DetermineTarget(context),
+            type = 1,
+            id = abilityId,
+            name = abilityName,
+            icon = abilityIcon,
+            dur = 0,
+            starts = beginTime,
+            ends = nil,
+            forced = "long",
+            restart = true,
+            iconNum = 0,
+            unbreakable = 0,
+            stack = stack,
+            groundLabel = groundLabel,
+            toggle = toggle,
+        }
+    end
+end
+
+-- Runs on the EVENT_UNIT_DEATH_STATE_CHANGED listener.
+-- This handler fires every time a valid unitTag dies or is resurrected
+function SpellCastBuffs.OnDeath(eventCode, unitTag, isDead)
+    -- Wipe buffs
+    if isDead then
+        if unitTag == "player" then
+            -- Clear all player/ground/prominent containers
+            local context = { "player1", "player2", "ground", "promb_ground", "promd_ground", "promb_player", "promd_player" }
+            for _, v in pairs(context) do
+                SpellCastBuffs.EffectsList[v] = {}
+            end
+
+            -- If werewolf is active, reset the icon so it's not removed (otherwise it flashes off for about a second until the trailer function picks up on the fact that no power drain has occurred.
+            if SpellCastBuffs.SV.ShowWerewolf and IsPlayerInWerewolfForm() then
+                SpellCastBuffs.WerewolfState(nil, true, true)
+            end
+        else
+            -- TODO: Do we need to clear prominent target containers here? (Don't think so)
+            for effectType = BUFF_EFFECT_TYPE_BUFF, BUFF_EFFECT_TYPE_DEBUFF do
+                SpellCastBuffs.EffectsList[unitTag .. effectType] = {}
+            end
+        end
+    end
+end
+
+-- Runs on the EVENT_DISPOSITION_UPDATE listener.
+-- This handler fires when the disposition of a reticleover unitTag changes. We filter for only this case.
+function SpellCastBuffs.OnDispositionUpdate(eventCode, unitTag)
+    if not SpellCastBuffs.SV.HideTargetBuffs then
+        SpellCastBuffs.AddNameAura()
+    end
+end
+
+-- Runs on the EVENT_TARGET_CHANGE listener.
+-- This handler fires every time someone target changes.
+-- This function is needed in case the player teleports via Way Shrine
+function SpellCastBuffs.OnTargetChange(eventCode, unitTag)
+    if unitTag ~= "player" then
+        return
+    end
+    SpellCastBuffs.OnReticleTargetChanged(eventCode)
+end
+
+-- Runs on the EVENT_RETICLE_TARGET_CHANGED listener.
+-- This handler fires every time the player's reticle target changes
+function SpellCastBuffs.OnReticleTargetChanged(eventCode)
+    SpellCastBuffs.ReloadEffects("reticleover")
+end
+
+-- Called by SpellCastBuffs.ReloadEffects - Displays recall cooldown
+function SpellCastBuffs.ShowRecallCooldown()
+    local recallRemain, _ = GetRecallCooldown()
+    if recallRemain > 0 then
+        local currentTimeMs = GetFrameTimeMilliseconds()
+        local abilityId = 999016
+        local abilityName = Abilities.Innate_Recall_Penalty
+        local context = SpellCastBuffs.DetermineContextSimple("player1", abilityId, abilityName)
+        SpellCastBuffs.EffectsList[context][abilityName] =
+        {
+            target = SpellCastBuffs.DetermineTarget(context),
+            type = 1,
+            id = abilityId,
+            name = abilityName,
+            icon = LUIE_MEDIA_ICONS_ABILITIES_ABILITY_INNATE_RECALL_COOLDOWN_DDS,
+            dur = 600000,
+            starts = currentTimeMs,
+            ends = currentTimeMs + recallRemain,
+            forced = "long",
+            restart = true,
+            iconNum = 0,
+            -- unbreakable=1 -- TODO: Maybe re-enable this? It makes prominent show as unbreakable blue since its a buff technically
+        }
+    end
+end
+
+-- Called by EVENT_RETICLE_TARGET_CHANGED listener - Saves active FAKE debuffs on enemies and moves them back and forth between the active container or hidden.
+function SpellCastBuffs.RestoreSavedFakeEffects()
+    -- Restore Ground Effects
+    for _, effectsList in pairs({ SpellCastBuffs.EffectsList.ground, SpellCastBuffs.EffectsList.saved }) do
+        -- local container = SpellCastBuffs.containerRouting[context]
+        for k, v in pairs(effectsList) do
+            if v.savedName ~= nil then
+                local unitName = zo_strformat(LUIE_UPPER_CASE_NAME_FORMATTER, GetUnitName("reticleover"))
+                if unitName == v.savedName then
+                    if SpellCastBuffs.EffectsList.saved[k] then
+                        SpellCastBuffs.EffectsList.ground[k] = SpellCastBuffs.EffectsList.saved[k]
+                        SpellCastBuffs.EffectsList.ground[k].iconNum = 0
+                        SpellCastBuffs.EffectsList.saved[k] = nil
+                    end
+                else
+                    if SpellCastBuffs.EffectsList.ground[k] then
+                        SpellCastBuffs.EffectsList.saved[k] = SpellCastBuffs.EffectsList.ground[k]
+                        SpellCastBuffs.EffectsList.ground[k] = nil
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Called by EVENT_RETICLE_TARGET_CHANGED listener - Displays fake buffs based off unitName (primarily for displaying Boss Immunities)
+function SpellCastBuffs.AddNameAura()
+    local unitName = GetUnitName("reticleover")
+    -- We need to check to make sure the mob is not dead, and also check to make sure the unitTag is not the player (just in case someones name exactly matches that of a boss NPC)
+    if Effects.AddNameAura[unitName] and GetUnitReaction("reticleover") == UNIT_REACTION_HOSTILE and not IsUnitPlayer("reticleover") and not IsUnitDead("reticleover") then
+        for k, v in pairs(Effects.AddNameAura[unitName]) do
+            local abilityName = GetAbilityName(v.id)
+            local abilityIcon = GetAbilityIcon(v.id)
+
+            -- Bail out if this ability is blacklisted
+            if SpellCastBuffs.SV.BlacklistTable[v.id] or SpellCastBuffs.SV.BlacklistTable[abilityName] then
+                return
+            end
+
+            local stack = v.stack or 0
+
+            local zone = v.zone
+            if zone then
+                local flag = false
+                for i, j in pairs(zone) do
+                    if GetZoneId(GetCurrentMapZoneIndex()) == i then
+                        flag = true
+                    end
+                end
+                if not flag then
+                    return
+                end
+            end
+
+            local buffType = v.debuff or BUFF_EFFECT_TYPE_BUFF
+            local context = v.debuff and "reticleover2" or "reticleover1"
+            local abilityId = v.debuff
+            context = SpellCastBuffs.DetermineContext(context, abilityId, abilityName)
+            SpellCastBuffs.EffectsList[context]["Name Specific Buff" .. k] =
+            {
+                target = SpellCastBuffs.DetermineTarget(context),
+                type = buffType,
+                id = v.id,
+                name = abilityName,
+                icon = abilityIcon,
+                dur = 0,
+                starts = 1,
+                ends = nil,
+                forced = "short",
+                restart = true,
+                iconNum = 0,
+                stack = stack,
+            }
+        end
+    end
+end
+
+-- Called by menu to preview icon positions. Simply iterates through all containers other than player_long and adds dummy test buffs into them.
+function SpellCastBuffs.MenuPreview()
+    local currentTimeMs = GetFrameTimeMilliseconds()
+    local routing = { "player1", "reticleover1", "promb_player", "player2", "reticleover2", "promd_player" }
+    local testEffectDurationList = { 22, 44, 55, 300, 1800000 }
+    local abilityId = 999000
+    local icon = "/esoui/art/icons/icon_missing.dds"
+
+    for i = 1, 5 do
+        for c = 1, 6 do
+            local context = routing[c]
+            local type = c < 4 and 1 or 2
+            local name = ("Test Effect: " .. i)
+            local duration = testEffectDurationList[i]
+            SpellCastBuffs.EffectsList[context][abilityId] =
+            {
+                target = SpellCastBuffs.DetermineTarget(context),
+                type = type,
+                id = 16415,
+                name = name,
+                icon = icon,
+                dur = duration * 1000,
+                starts = currentTimeMs,
+                ends = currentTimeMs + (duration * 1000),
+                forced = "short",
+                restart = true,
+                iconNum = 0,
+            }
+            abilityId = abilityId + 1
+        end
+    end
+end
+
+-- Runs on EVENT_PLAYER_ACTIVATED listener
+function SpellCastBuffs.OnPlayerActivated(eventCode)
+    SpellCastBuffs.playerActive = true
+    SpellCastBuffs.playerResurrectStage = nil
+
+    -- Reload Effects
+    SpellCastBuffs.ReloadEffects("player")
+    SpellCastBuffs.AddNameOnBossEngaged()
+
+    -- Load Zone Specific Buffs
+    if not SpellCastBuffs.SV.HidePlayerBuffs then
+        SpellCastBuffs.AddZoneBuffs()
+    end
+
+    -- Resolve Duel Target
+    SpellCastBuffs.DuelStart()
+
+    -- Resolve Mounted icon
+    if not SpellCastBuffs.SV.IgnoreMountPlayer and IsMounted() then
+        zo_callLater(function ()
+                         SpellCastBuffs.MountStatus(nil, true)
+                     end, 50)
+    end
+
+    -- Resolve Disguise Icon
+    if not SpellCastBuffs.SV.IgnoreDisguise then
+        zo_callLater(function ()
+                         SpellCastBuffs.DisguiseItem(nil, BAG_WORN, 10, nil, nil, nil, nil, nil, nil, nil, nil)
+                     end, 50)
+    end
+
+    -- Resolve Assistant Icon
+    if not SpellCastBuffs.SV.IgnorePet or not SpellCastBuffs.SV.IgnoreAssistant then
+        zo_callLater(function ()
+                         SpellCastBuffs.CollectibleBuff()
+                     end, 50)
+    end
+
+    -- Resolve Werewolf
+    if SpellCastBuffs.SV.ShowWerewolf and IsPlayerInWerewolfForm() then
+        SpellCastBuffs.WerewolfState(nil, true, true)
+    end
+
+    -- Sets the player to dead if reloading UI or loading in while dead.
+    if IsUnitDead("player") then
+        SpellCastBuffs.playerDead = true
+    end
+end
+
+-- Runs on the EVENT_PLAYER_DEACTIVATED listener
+function SpellCastBuffs.OnPlayerDeactivated(eventCode)
+    SpellCastBuffs.playerActive = false
+    SpellCastBuffs.playerResurrectStage = nil
+end
+
+-- Runs on the EVENT_PLAYER_ALIVE listener
+function SpellCastBuffs.OnPlayerAlive(eventCode)
+    --[[-- If player clicks "Resurrect at Wayshrine", then player is first deactivated, then he is transferred to new position, then he becomes alive (this event) then player is activated again.
+    To register resurrection we need to work in this function if player is already active. --]]
+    --
+    if not SpellCastBuffs.playerActive or not SpellCastBuffs.playerDead then
+        return
+    end
+
+    SpellCastBuffs.playerDead = false
+
+    -- This is a good place to reload player buffs, as they were wiped on death
+    SpellCastBuffs.ReloadEffects("player")
+
+    -- Start Resurrection Sequence
+    SpellCastBuffs.playerResurrectStage = 1
+    --[[If it was self resurrection, then there will be 4 EVENT_VIBRATION:
+    First - 600ms, Second - 0ms to switch first one off, Third - 350ms, Fourth - 0ms to switch third one off.
+    So now we'll listen in the vibration event and progress SpellCastBuffs.playerResurrectStage with first 2 events and then on correct third event we'll create a buff. --]]
+end
+
+-- Runs on the EVENT_PLAYER_DEAD listener
+function SpellCastBuffs.OnPlayerDead(eventCode)
+    if not SpellCastBuffs.playerActive then
+        return
+    end
+    SpellCastBuffs.playerDead = true
+end
+
+-- Runs on the EVENT_VIBRATION listener (detects player resurrection stage)
+function SpellCastBuffs.OnVibration(eventCode, duration, coarseMotor, fineMotor, leftTriggerMotor, rightTriggerMotor)
+    if not SpellCastBuffs.playerResurrectStage then
+        return
+    end
+    if SpellCastBuffs.SV.HidePlayerBuffs then
+        return
+    end
+    if SpellCastBuffs.playerResurrectStage == 1 and duration == 600 then
+        SpellCastBuffs.playerResurrectStage = 2
+    elseif SpellCastBuffs.playerResurrectStage == 2 and duration == 0 then
+        SpellCastBuffs.playerResurrectStage = 3
+    elseif SpellCastBuffs.playerResurrectStage == 3 and duration == 350 and SpellCastBuffs.SV.ShowResurrectionImmunity then
+        -- We got correct sequence, so let us create a buff and reset the SpellCastBuffs.playerResurrectStage
+        SpellCastBuffs.playerResurrectStage = nil
+        local currentTimeMs = GetFrameTimeMilliseconds()
+        local abilityId = 14646
+        local abilityName = Abilities.Innate_Resurrection_Immunity
+        local context = SpellCastBuffs.DetermineContextSimple("player1", abilityId, abilityName)
+        SpellCastBuffs.EffectsList[context][abilityId] =
+        {
+            target = SpellCastBuffs.DetermineTarget(context),
+            type = 1,
+            id = abilityId,
+            name = abilityName,
+            icon = LUIE_MEDIA_ICONS_ABILITIES_ABILITY_INNATE_RESURRECTION_IMMUNITY_DDS,
+            dur = 10000,
+            starts = currentTimeMs,
+            ends = currentTimeMs + 10000,
+            restart = true,
+            iconNum = 0,
+        }
+    else
+        -- This event does not seem to have anything to do with player self-resurrection
+        SpellCastBuffs.playerResurrectStage = nil
+    end
+end

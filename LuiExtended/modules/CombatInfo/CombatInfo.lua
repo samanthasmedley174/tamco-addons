@@ -1,0 +1,200 @@
+-- -----------------------------------------------------------------------------
+--  LuiExtended                                                               --
+--  Distributed under The MIT License (MIT) (see LICENSE file)                --
+-- -----------------------------------------------------------------------------
+
+--- @class (partial) LuiExtended
+local LUIE = LUIE
+local UI = LUIE.UI
+local LuiData = LuiData
+local Data = LuiData.Data
+local Effects = Data.Effects
+local Abilities = Data.Abilities
+local Castbar = Data.CastBarTable
+local OtherAddonCompatability = LUIE.OtherAddonCompatability
+
+local pairs = pairs
+local printToChat = LUIE.PrintToChat
+local GetSlotTrueBoundId = LUIE.GetSlotTrueBoundId
+local GetAbilityDuration = GetAbilityDuration
+local timeMs = GetFrameTimeMilliseconds
+local zo_strformat = zo_strformat
+local string_format = string.format
+local eventManager = GetEventManager()
+local sceneManager = SCENE_MANAGER
+local windowManager = GetWindowManager()
+local animationManager = GetAnimationManager()
+local ACTION_RESULT_AREA_EFFECT = 669966
+
+local moduleName = LUIE.name .. "CombatInfo"
+
+-- Import CombatInfo namespace (declared in Namespace.lua)
+--- @class (partial) LUIE.CombatInfo
+local CombatInfo = LUIE.CombatInfo
+
+-- Module-local state
+
+-- ===== HELPER FUNCTIONS =====
+
+local function getAbilityName(abilityId, casterUnitTag)
+    return GetAbilityName(abilityId, casterUnitTag)
+end
+
+-- ===== CORE FUNCTIONS (stay in main module) =====
+
+-- Set Marker
+--- @param removeMarker boolean?
+function CombatInfo.SetMarker(removeMarker)
+    if removeMarker then
+        eventManager:UnregisterForEvent(moduleName .. "Marker", EVENT_PLAYER_ACTIVATED)
+        SetFloatingMarkerInfo(MAP_PIN_TYPE_AGGRO, CombatInfo.SV.markerSize, "", "", true, false)
+    end
+    if CombatInfo.SV.showMarker ~= true then
+        return
+    end
+    local LUIE_MARKER = LUIE_MEDIA_COMBATINFO_FLOATINGICON_REDARROW_DDS
+    SetFloatingMarkerInfo(MAP_PIN_TYPE_AGGRO, CombatInfo.SV.markerSize, LUIE_MARKER, "", true, false)
+    eventManager:RegisterForEvent(moduleName .. "Marker", EVENT_PLAYER_ACTIVATED, CombatInfo.OnPlayerActivatedMarker)
+end
+
+-- Clear and then (maybe) re-register event listeners
+function CombatInfo.RegisterCombatInfo()
+    eventManager:RegisterForEvent(moduleName, EVENT_PLAYER_ACTIVATED, CombatInfo.OnPlayerActivated)
+end
+
+function CombatInfo.ClearCustomList(list)
+    local listRef = ""
+    for k, v in pairs(list) do
+        list[k] = nil
+    end
+    ZO_GetChatSystem():Maximize()
+    ZO_GetChatSystem().primaryContainer:FadeIn()
+    printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_CLEARED), listRef), true)
+end
+
+function CombatInfo.AddToCustomList(list, input)
+    local id = tonumber(input)
+    local listRef = ""
+    if id and id > 0 then
+        local cachedName = ZO_CachedStrFormat(SI_ABILITY_NAME, getAbilityName(id))
+        local name = cachedName
+        if name ~= nil and name ~= "" then
+            local icon = zo_iconFormat(GetAbilityIcon(id), 16, 16)
+            list[id] = true
+            ZO_GetChatSystem():Maximize()
+            ZO_GetChatSystem().primaryContainer:FadeIn()
+            printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_ADDED_ID), icon, id, name, listRef), true)
+        else
+            ZO_GetChatSystem():Maximize()
+            ZO_GetChatSystem().primaryContainer:FadeIn()
+            printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_ADDED_FAILED), input, listRef), true)
+        end
+    else
+        if input ~= "" then
+            list[input] = true
+            ZO_GetChatSystem():Maximize()
+            ZO_GetChatSystem().primaryContainer:FadeIn()
+            printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_ADDED_NAME), input, listRef), true)
+        end
+    end
+end
+
+function CombatInfo.RemoveFromCustomList(list, input)
+    local id = tonumber(input)
+    local listRef = ""
+    if id and id > 0 then
+        local cachedName = ZO_CachedStrFormat(SI_ABILITY_NAME, getAbilityName(id))
+        local name = cachedName
+        local icon = zo_iconFormat(GetAbilityIcon(id), 16, 16)
+        list[id] = nil
+        ZO_GetChatSystem():Maximize()
+        ZO_GetChatSystem().primaryContainer:FadeIn()
+        printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_REMOVED_ID), icon, id, name, listRef), true)
+    else
+        if input ~= "" then
+            list[input] = nil
+            ZO_GetChatSystem():Maximize()
+            ZO_GetChatSystem().primaryContainer:FadeIn()
+            printToChat(zo_strformat(GetString(LUIE_STRING_CUSTOM_LIST_REMOVED_NAME), input, listRef), true)
+        end
+    end
+end
+
+function CombatInfo.OnPlayerActivatedMarker(eventCode)
+    CombatInfo.SetMarker()
+end
+
+-- Used to populate abilities icons after the user has logged on
+function CombatInfo.OnPlayerActivated(eventCode)
+    eventManager:UnregisterForEvent(moduleName, EVENT_PLAYER_ACTIVATED)
+end
+
+-- Module initialization
+function CombatInfo.Initialize(enabled)
+    local isCharacterSpecific = LUIESV["Default"][GetDisplayName()]["$AccountWide"].CharacterSpecificSV
+    if isCharacterSpecific then
+        CombatInfo.SV = ZO_SavedVars:New(LUIE.SVName, LUIE.SVVer, "CombatInfo", CombatInfo.Defaults)
+    else
+        CombatInfo.SV = ZO_SavedVars:NewAccountWide(LUIE.SVName, LUIE.SVVer, "CombatInfo", CombatInfo.Defaults)
+    end
+
+    if not LUIE.IsMigrationDone("combatinfo_fontstyles") then
+        CombatInfo.SV.CastBarFontStyle = LUIE.MigrateFontStyle(CombatInfo.SV.CastBarFontStyle)
+        if CombatInfo.SV.alerts and CombatInfo.SV.alerts.toggles then
+            CombatInfo.SV.alerts.toggles.alertFontStyle = LUIE.MigrateFontStyle(CombatInfo.SV.alerts.toggles.alertFontStyle)
+        end
+        LUIE.MarkMigrationDone("combatinfo_fontstyles")
+    end
+
+    if not enabled then
+        return
+    end
+    CombatInfo.Enabled = true
+
+    CombatInfo.RegisterCombatInfo()
+
+    CombatInfo.SetMarker()
+
+    CombatInfo.AbilityAlerts.CreateAlertFrame()
+    CombatInfo.AbilityAlerts.SetAlertFramePosition()
+    CombatInfo.AbilityAlerts.SetAlertColors()
+
+    CombatInfo.CrowdControlTracker.UpdateAOEList()
+    CombatInfo.CrowdControlTracker.Initialize()
+
+    CombatInfo.InitializeSynergyTracker()
+
+    CombatInfo.Block.Initialize()
+
+    if not LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsCI then
+        LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsCI = 0
+    end
+    if LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsCI < 2 then
+        CombatInfo.SV.alerts.colors.stunColor = CombatInfo.Defaults.alerts.colors.stunColor
+        CombatInfo.SV.alerts.colors.knockbackColor = CombatInfo.Defaults.alerts.colors.knockbackColor
+        CombatInfo.SV.alerts.colors.levitateColor = CombatInfo.Defaults.alerts.colors.levitateColor
+        CombatInfo.SV.alerts.colors.disorientColor = CombatInfo.Defaults.alerts.colors.disorientColor
+        CombatInfo.SV.alerts.colors.fearColor = CombatInfo.Defaults.alerts.colors.fearColor
+        CombatInfo.SV.alerts.colors.charmColor = CombatInfo.Defaults.alerts.colors.charmColor
+        CombatInfo.SV.alerts.colors.silenceColor = CombatInfo.Defaults.alerts.colors.silenceColor
+        CombatInfo.SV.alerts.colors.staggerColor = CombatInfo.Defaults.alerts.colors.staggerColor
+        CombatInfo.SV.alerts.colors.unbreakableColor = CombatInfo.Defaults.alerts.colors.unbreakableColor
+        CombatInfo.SV.alerts.colors.snareColor = CombatInfo.Defaults.alerts.colors.snareColor
+        CombatInfo.SV.alerts.colors.rootColor = CombatInfo.Defaults.alerts.colors.rootColor
+        CombatInfo.SV.cct.colors[ACTION_RESULT_STUNNED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_STUNNED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_KNOCKBACK] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_KNOCKBACK]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_LEVITATED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_LEVITATED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_DISORIENTED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_DISORIENTED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_FEARED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_FEARED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_CHARMED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_CHARMED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_SILENCED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_SILENCED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_STAGGERED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_STAGGERED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_IMMUNE] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_IMMUNE]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_DODGED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_DODGED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_BLOCKED] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_BLOCKED]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_BLOCKED_DAMAGE] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_BLOCKED_DAMAGE]
+        CombatInfo.SV.cct.colors[ACTION_RESULT_AREA_EFFECT] = CombatInfo.Defaults.cct.colors[ACTION_RESULT_AREA_EFFECT]
+        CombatInfo.SV.cct.colors.unbreakable = CombatInfo.Defaults.cct.colors.unbreakable
+    end
+    LUIESV["Default"][GetDisplayName()]["$AccountWide"].AdjustVarsCI = 2
+end
